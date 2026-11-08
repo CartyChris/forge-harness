@@ -1,0 +1,73 @@
+# Forge — Round 7 (2026-11-08)
+
+## What was fixed (from your screenshots)
+- **The chat no longer scrolls sideways.** Long words, URLs, JSON errors, tool cards and tables now wrap or scroll inside their own box, never the page. This is tested at 390×844, 844×390 and 1280×800 with deliberately nasty content.
+- **Tool calls stopped failing in loops.** The `tool_call unknown tool 'tool_call'` errors and the "four tool calls in a row failed" stops came from models wrapping calls or guessing names. A new core module, `DS.toolkit` (`src/js/55-toolkit.js`), fixes this:
+  - **Wrapped calls:** it unwraps `tool_call` / `function` / `invoke` wrappers.
+  - **Names:** it maps common aliases (`write_file`→`fs_write`, `bash`→`shell_run`, `search`→`web_search`, `subagent`→`spawn_subagent`…) and fuzzy-matches near-miss names.
+  - **Arguments:** it coerces argument types and fills in synonyms (`file`→`path`, `text`/`html`/`code`→`content`, `q`→`query`…).
+  - **Clear errors:** it checks required arguments and returns an error with a `how_to_fix` hint, the tool's signature and an example.
+  - **Text-only models:** tool calls a model writes as text are recovered (fences, `<tool_call>`, `<function=…>`, bare JSON, `name({...})`).
+- **Every model gets a tool guide.** A short **tool quick-reference** is in the system prompt, scoped to the tools the request needs (core tools are always included; recently used tools are kept). There is also a new `tool_help {name|query}` tool, and a nudge after two failures.
+- **`app_create`** now accepts `html` directly. Models kept sending `html` while the schema required `files`, which was the most common failure.
+- **Model labels are correct now.** The **Think pill** sent `deepseek-reasoner` to Pollinations and the local engine, which caused the wrong chips "pollinations · deepseek-reasoner" and "wllama · deepseek-reasoner". It now only swaps the model on the DeepSeek API.
+- **Local AI (wllama 3.x)** loads with the new `pathConfig`, which fixes `"default" is missing from pathConfig`.
+- **Pollinations** now needs a free key (they changed this). It is labelled "Pollinations (free key)" with a link to enter.pollinations.ai, and it is no longer listed as keyless.
+- **Preview is on the left rail** (▶), so it no longer sits behind "…".
+- Streaming is **~17× faster** on long answers because rendering is coalesced to one paint per frame. 3000 deltas went from 10.9 s to 0.64 s.
+
+## New
+- **3D wallpapers (three.js).** A Wallpapers gallery has 48 wallpapers, 30 of them live 3D. There are 4 new 3D scenes: aurora-ribbons, monoliths, nebula-particles and emberforge.
+  - All scenes share one WebGL renderer, with Auto/Low/High quality, an intensity control, pause-when-typing, iOS gyro parallax and a still-image mode.
+  - Scenes follow your theme colours.
+  - If three.js can't load (offline, or from file:// with no network), a 3D wallpaper falls back to its 2D version and the app says so. Your 3D choice is remembered.
+  - Open it from the rail, with `/wallpaper`, or by asking "set wallpaper to nebula".
+- **Subagents and orchestrator.**
+  - **Roles:** Orchestrator, Coder, Researcher, Reviewer, Fast, plus your own. Each role has its own model, tool groups and step cap.
+  - **Tools:** `spawn_subagent`, `agents_wait` and `agents_status` run hidden child threads, at most 3 at once, with a 5-minute budget and the same permission tier as the parent.
+  - **Orchestrate pill:** turns on the orchestrator prompt and the Orchestrator role's model.
+  - **Agents view:** includes a live panel with Stop and Open thread.
+  - **Per-thread model routing:** every thread can be pinned to a provider and model.
+- **Continue.dev compatibility.**
+  - **Import:** import a Continue `config.yaml` or `config.json`. Models go to providers or custom endpoints. Roles are mapped (chat, edit/apply→coder, summarize→fast, autocomplete). Rules go into `/AGENTS.md`. Prompts become `/commands`. HTTP MCP servers are connected.
+  - **Export:** Forge exports back to `config.yaml` with `${{ secrets.X }}` placeholders and never real keys.
+  - **Autocomplete:** **IDE ghost-text autocomplete** (Monaco, press Tab to accept) uses Continue's `autocomplete` role. It is off until you set that role.
+  - **Free trial:** Continue's own "free trial" models only work inside Continue's apps, so Forge skips them and says so. Free continual use comes from the free providers already in Forge (Groq, Gemini, Cerebras, OpenRouter free, DeepSeek, local AI).
+- **Superagent (GitHub repo watcher).** This is inspired by `deepseek-ai/dsh-superagent-prototype`; it is not DeepSeek's code.
+  - **Inbox:** it watches one repo's issues, PRs and failed CI runs, using ETag/304 caching and backing off on rate limits.
+  - **Triage:** a 3-line triage for each item.
+  - **Work on it:** opens a plan-first thread with the issue, its comments, the repo tree and the README.
+  - **Results:** `gh_pr_draft` always asks you first, then opens a **draft PR** if you have a token, or writes a `.patch` if you don't. Proactive mode is off by default and never opens PRs on its own.
+- **DeepSeek API provider (2026 models).** Models are `deepseek-flash`, `deepseek-v4-pro` and the legacy `deepseek-v4-flash`. `reasoning_content` is sent back during tool calls, and `thinking` / `reasoning_effort` are supported.
+- **Smarter default router.** Keyed providers come first, then keyless direct routes, then gateway routes only when a gateway exists.
+
+## Engine fixes found while integrating
+- **Parallel tool calls.** Parallel-safe calls in one step now run together: reads, searches and `spawn_subagent`. Writes still run in order, and results always go back in call order.
+- **Stop.** Stopping one thread (a subagent, for example) no longer cancels another thread's pending approval or question.
+- **Hidden threads.** Subagent threads stay out of the sidebar, the command palette and the boot fallback.
+- **Plugin options.**
+  - Guard rules can ask with `human: true`, so the auto-reviewer can never answer for you.
+  - Tools can declare `readonly: true` so Plan mode can use them.
+  - `streamFor(..., {quiet:true})` makes background calls without changing the "current model" readout.
+- **Offline Sim** scripts now read raw tool results even when the shield has spotlighted them.
+
+## Tests (Playwright, in `tests/`, all `FAILS: none` on the full build)
+| Suite | Coverage |
+| --- | --- |
+| `t_core` | boot, views, chat overflow ×3 sizes |
+| `t_toolcalls` | 17 bad-model scenarios |
+| `t_engine` | parallel batches, scoped stop |
+| `t_perf` | — |
+| `t_wallpapers` | real three.js r149: lit pixels, one WebGL context, offline fallback, persistence |
+| `t_agents` | 21 checks |
+| `t_continue` | 44 checks |
+| `t_superagent` | 39 checks with GitHub mocked, `.patch` checked with `git apply` |
+| `t_ide_ghost` | real Monaco 0.57 |
+
+## Not verified (honest list)
+- None of this has run on a real iPhone, iPad or Safari/WebKit. Everything was tested in Chromium.
+- No live endpoints were called from this sandbox. That includes DeepSeek, Pollinations, GitHub, the jsDelivr/unpkg CDNs, and Continue configs pointing at real servers.
+- Not tested:
+  - the subagent 5-minute timeout path;
+  - stdio MCP servers through the local bridge;
+  - Superagent with private repos.

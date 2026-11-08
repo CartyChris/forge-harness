@@ -131,14 +131,15 @@ DS.plugin({
       const missing = ids.filter(i => !jobs.has(i));
       const all = Promise.all(list.map(j => j.promise));
       const races = [all];
-      if (signal) races.push(new Promise((_, rej) => { if (signal.aborted) rej(Object.assign(new Error('aborted'), { name: 'AbortError' })); signal.addEventListener('abort', () => rej(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true }); }));
-      if (timeoutMs) races.push(new Promise(res => setTimeout(() => res(null), timeoutMs)));
-      const r = await Promise.race(races);
+      let onAbort = null, tm = null;
+      if (signal) races.push(new Promise((_, rej) => { const ab = () => rej(Object.assign(new Error('aborted'), { name: 'AbortError' })); if (signal.aborted) return ab(); onAbort = ab; signal.addEventListener('abort', ab, { once: true }); }));
+      if (timeoutMs) races.push(new Promise(res => { tm = setTimeout(() => res(null), timeoutMs); }));
+      let r; try { r = await Promise.race(races); } finally { if (tm) clearTimeout(tm); if (onAbort) signal.removeEventListener('abort', onAbort); }
       return { results: r || list.map(result), missing: missing.length ? missing : undefined, timed_out: r === null || undefined };
     }
 
     /* ---------- child-thread enforcement: tools by group, step cap, role prompt ---------- */
-    const jobOf = t => { if (!t || !t.hidden) return null; for (const j of jobs.values()) if (j.threadId === t.id) return j; return null; };
+    const jobOf = t => { if (!t || !(t.hidden || t.agentRole || t.parentId)) return null; for (const j of jobs.values()) if (j.threadId === t.id) return j; return null; };  /* still enforced after “Un-hide & open” */
     ctx.hook('beforeModel', pre => {
       const j = jobOf(pre && pre.thread); if (!j) return;
       j.steps++; emit(j);
@@ -153,7 +154,7 @@ DS.plugin({
       if (!j.groups.includes('all') && !ALWAYS.has(p.name) && !j.groups.includes(groupOf(p.name))) return { block: p.name + ' is outside this role’s tool groups (' + j.groups.join(', ') + ')' };
     });
     ctx.prompt({ id: 'agents-sub', build: t => {
-      if (!t || !t.hidden || !t.agentRole) return '';
+      if (!t || !t.agentRole) return '';
       const r = role(t.agentRole) || {}; const j = jobOf(t);
       return '## SUBAGENT\nYou are a subagent (role: ' + (r.label || t.agentRole) + ') working for an orchestrator. ' + (r.prompt || '') + '\nWork only on your task, without asking the user anything. Budget: ' + ((j && j.maxSteps) || r.maxSteps || 6) + ' steps. Finish with a concise final answer: what you found or changed (file paths), and anything unverified.';
     } });
@@ -163,12 +164,12 @@ DS.plugin({
     const orchOn = () => !!(DS.store.state.toggles || {})[PILL];
     ctx.pill({ id: PILL, label: 'Orchestrate', icon: 'orgchart', title: 'Main model plans and spawns subagents per role, then merges their results' });
     ctx.prompt({ id: 'agents-orch', build: t => {
-      if (!orchOn() || (t && t.hidden)) return '';
+      if (!orchOn() || (t && (t.hidden || t.parentId))) return '';
       const rs = roles();
       return '## ORCHESTRATOR MODE\nYou are the ORCHESTRATOR. 1) Break the task into independent parts. 2) For each part call spawn_subagent {task, role} with the best role — pass wait:false to start several in parallel, then agents_wait {ids}. 3) Review and merge the results (check files_changed; re-spawn a Reviewer if risky). 4) Answer with the merged result. Do small, sequential steps yourself.\nRoles: ' + Object.entries(rs).filter(([k]) => k !== 'orchestrator').map(([k, r]) => k + ' (' + r.label + '; tools ' + (r.tools || []).join('/') + (r.provider ? '; ' + r.provider + ' · ' + (r.model || 'default') : '') + ')').join(', ') + '.';
     } });
     function applyOrchRoute(t) {
-      if (!t || t.hidden) return;
+      if (!t || t.hidden || t.parentId) return;
       const o = role('orchestrator');
       if (orchOn() && o && o.provider) { if (!t._agentsRouted) { t._agentsPrevRoute = t.route || null; t._agentsRouted = true; } t.route = { provider: o.provider, model: o.model || '' }; }
       else if (t._agentsRouted) { if (t._agentsPrevRoute) t.route = t._agentsPrevRoute; else delete t.route; delete t._agentsPrevRoute; delete t._agentsRouted; }

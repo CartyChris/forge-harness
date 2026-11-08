@@ -9,12 +9,13 @@ DS.toolkit = (() => {
   const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const WRAPPERS = new Set(['toolcall', 'tool', 'function', 'functioncall', 'calltool', 'usetool', 'invoke', 'call', 'action', 'tooluse']);
   /* common names other agents use → Forge names (only applied when the target exists) */
+  const DESTRUCTIVE = new Set(['fs_delete', 'fs_move', 'shell_run', 'git_reset', 'ws_delete', 'gh_pr_draft']);
   const ALIASES = {
     readfile: 'fs_read', read: 'fs_read', cat: 'fs_read', openfile: 'fs_read', viewfile: 'fs_read',
     writefile: 'fs_write', write: 'fs_write', createfile: 'fs_write', savefile: 'fs_write', newfile: 'fs_write',
     editfile: 'fs_edit', edit: 'fs_edit', replace: 'fs_edit', strreplace: 'fs_edit', strreplaceeditor: 'fs_edit', applypatch: 'fs_edit', patch: 'fs_edit',
     listfiles: 'fs_list', ls: 'fs_list', listdir: 'fs_list', listdirectory: 'fs_list', glob: 'fs_list',
-    deletefile: 'fs_delete', rm: 'fs_delete', remove: 'fs_delete', grep: 'fs_search', searchfiles: 'fs_search', findinfiles: 'fs_search',
+    deletefile: 'fs_delete', rm: 'fs_delete', grep: 'fs_search', searchfiles: 'fs_search', findinfiles: 'fs_search',
     movefile: 'fs_move', mv: 'fs_move', rename: 'fs_move', copyfile: 'fs_copy', cp: 'fs_copy',
     bash: 'shell_run', shell: 'shell_run', runcommand: 'shell_run', exec: 'shell_run', terminal: 'shell_run', runshell: 'shell_run', executecommand: 'shell_run',
     createapp: 'app_create', makeapp: 'app_create', buildapp: 'app_create', newapp: 'app_create', createwebsite: 'app_create', creategame: 'app_create', appcreate: 'app_create', createhtml: 'app_create',
@@ -42,9 +43,11 @@ DS.toolkit = (() => {
     const n = norm(r.replace(/^(functions?|tools?)[.:]/i, ''));
     let t = tools.find(t => norm(t.name) === n); if (t) return { name: t.name, how: 'case/format' };
     if (ALIASES[n] && byName(ALIASES[n])) return { name: ALIASES[n], how: 'alias' };
-    const scored = tools.map(t => ({ t, d: lev(n, norm(t.name)) })).sort((a, b) => a.d - b.d);
+    /* destructive tools are reachable by exact name, case/format or explicit alias only — never by a guess */
+    const guessable = tools.filter(t => !(t.destructive === true || DESTRUCTIVE.has(t.name)));
+    const scored = guessable.map(t => ({ t, d: lev(n, norm(t.name)) })).sort((a, b) => a.d - b.d);
     if (scored[0] && scored[0].d <= Math.max(1, Math.floor(n.length / 5)) && (!scored[1] || scored[1].d > scored[0].d)) return { name: scored[0].t.name, how: 'closest spelling' };
-    const sub = tools.filter(t => norm(t.name).includes(n) || (n.length > 4 && n.includes(norm(t.name)))); if (sub.length === 1) return { name: sub[0].name, how: 'partial name' };
+    const sub = guessable.filter(t => norm(t.name).includes(n) || (n.length > 4 && n.includes(norm(t.name)))); if (sub.length === 1) return { name: sub[0].name, how: 'partial name' };
     return null;
   }
   function suggestions(raw, k = 5) { const n = norm(raw); return allTools().map(t => ({ n: t.name, d: lev(n, norm(t.name)) })).sort((a, b) => a.d - b.d).slice(0, k).map(x => x.n); }
@@ -67,7 +70,7 @@ DS.toolkit = (() => {
     const sch = def.parameters || {}; const props = sch.properties || {}; const out = Object.assign({}, args); const errors = [], fixes = [];
     if (out.__parseError) return { args: out, errors: ['arguments were not valid JSON: ' + out.__parseError], fixes };
     /* map obvious synonyms onto required props (file→path, filename→path, content→text …) */
-    const SYN = { path: ['file', 'filename', 'file_path', 'filepath', 'target', 'name'], content: ['text', 'body', 'data', 'contents', 'code', 'html', 'source'], query: ['q', 'search', 'term', 'keywords', 'question'], url: ['link', 'href', 'uri', 'page'], cmd: ['command', 'cmdline', 'script'], code: ['source', 'script', 'js', 'python'], prompt: ['description', 'text', 'query'] };
+    const SYN = { path: ['file', 'filename', 'file_path', 'filepath', 'target'], content: ['text', 'body', 'data', 'contents', 'code', 'html', 'source'], query: ['q', 'search', 'term', 'keywords', 'question'], url: ['link', 'href', 'uri', 'page'], cmd: ['command', 'cmdline', 'script'], code: ['source', 'script', 'js', 'python'], prompt: ['description', 'text', 'query'] };
     for (const k of Object.keys(props)) if (out[k] === undefined && SYN[k]) for (const s of SYN[k]) if (out[s] !== undefined && !props[s]) { out[k] = out[s]; delete out[s]; fixes.push(s + '→' + k); break; }
     for (const [k, p] of Object.entries(props)) {
       const v = out[k]; if (v === undefined || v === null) continue; const ty = p.type;

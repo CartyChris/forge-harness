@@ -48,6 +48,22 @@ async def main():
         check('approval sheet opened for thread A', res['sheetBefore'], res)
         check('stopping thread B leaves A\'s approval open', res['sheetAfter'] and res['aRunning'], res)
         check('stopping A closes its own approval', res['closedOnOwnStop'] and res['bStopped'], res)
+        # stop mid-batch: every tool_call still gets a tool reply (strict OpenAI-compatible APIs reject orphans), finished results are kept
+        o = await pg.evaluate("""async () => { const st = DS.store.settings(); st.permission = 'unrestricted';
+          const T = DS.store.newThread(); T.__script = [{ calls: [{ name: 'fs_list', args: { path: '/' } }, { name: 'slow_read', args: { k: 'x' } }, { name: 'slow_write', args: { k: 'never' } }] }];
+          const p = DS.agent.run(T, 'go'); await new Promise(r => setTimeout(r, 200)); DS.agent.stop(T); await p.catch(() => {}); await new Promise(r => setTimeout(r, 100));
+          const m = T.messages.at(-1); const a = m.api.find(x => x.tool_calls); const replies = m.api.filter(x => x.role === 'tool');
+          T.__script = [{ content: 'ok' }]; let sent = null; const pr = DS.providers.pick(T); const orig = pr.stream; pr.stream = async o2 => { sent = o2.messages; return orig.call(pr, o2); };
+          await DS.agent.run(T, 'again'); pr.stream = orig;
+          const ai = sent.findIndex(x => x.tool_calls); const after = sent.slice(ai + 1, ai + 1 + a.tool_calls.length).map(x => x.role + ':' + x.tool_call_id);
+          return { calls: a.tool_calls.map(c => c.id), replies: replies.map(r => r.tool_call_id + ':' + r.content.slice(0, 40)), after, wrote: window.__log.some(l => l.k === 'never') }; }""")
+        check('stop mid-batch: every tool_call has a reply', len(o['replies']) == len(o['calls']), o)
+        check('stop mid-batch: finished fs_list result kept, rest marked cancelled', 'cancelled' not in o['replies'][0] and all('cancelled' in r for r in o['replies'][1:]), o['replies'])
+        check('next request: tool_calls immediately followed by their tool replies', all(x.startswith('tool:') for x in o['after']) and len(o['after']) == len(o['calls']), o)
+        check('later sequential write never ran after stop', not o['wrote'], o)
+        g = await pg.evaluate("[DS.toolkit.matchName('delete'), DS.toolkit.matchName('fs_delte'), DS.toolkit.matchName('rm'), DS.toolkit.matchName('fs_reed')]")
+        check('fuzzy match never guesses a destructive tool', g[0] is None and g[1] is None, g)
+        check('explicit alias rm and typo fs_reed still resolve', g[2] and g[2]['name'] == 'fs_delete' and g[3] and g[3]['name'] == 'fs_read', g)
         check('no page errors', not errs, errs)
         await b.close()
     print('\nFAILS: ' + (', '.join(fails) if fails else 'none')); sys.exit(1 if fails else 0)

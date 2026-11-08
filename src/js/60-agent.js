@@ -1,7 +1,7 @@
 /* ═══════════════════════════ AGENT: runs · plan/act/auto · tools · diff capture · hooks ═══════════════════════════ */
 const READ_GATES = ['read', 'none'];
 const Agent = DS.agent = {
-  active: new Map(), asks: new Map(),
+  active: new Map(), asks: new Map(), _guides: new WeakMap(),
   isRunning(t) { return !!(t && this.active.has(t.id)); },
   tools() { return DS.kernel.list('tool'); },
   tool(name) { return this.tools().find(t => t.name === name); },
@@ -27,7 +27,7 @@ const Agent = DS.agent = {
       prof.system ? ('Role — ' + prof.label + ': ' + prof.system) : '',
       phase === 'plan' ? 'PLAN MODE: do NOT modify anything. Explore with read-only tools, then call update_plan with concrete steps (and a one-sentence goal). Stop after that so the user can approve.' : (thread.mode === 'auto' ? 'For non-trivial work, call update_plan first with 3–7 steps, then execute them, updating step status as you go.' : ''),
       thread.plan && thread.plan.steps && thread.plan.steps.length ? 'Current plan:\n' + thread.plan.steps.map((st, i) => (i + 1) + '. [' + st.status + '] ' + st.text).join('\n') : '',
-      thread._toolGuide || '',
+      this._guides.get(thread) || '',
       agentsMd ? '## AGENTS.md\n' + agentsMd : '',
       skills.length ? '## Skills (load with use_skill when relevant)\n' + skills.map(k => '- ' + k.id + ': ' + (k.description || k.title)).join('\n') : '',
       ...DS.kernel.list('systemPrompt').map(p => { try { return typeof p.build === 'function' ? p.build(thread) : p.text; } catch (_) { return ''; } })
@@ -39,7 +39,13 @@ const Agent = DS.agent = {
     for (let i = msgs.length - 1; i >= 0; i--) { const m = msgs[i]; const sz = JSON.stringify(m.api || m.content || m.parts || '').length; if (budget - sz < 0 && picked.length) break; budget -= sz; picked.unshift(m); }
     for (const m of picked) {
       if (m.role === 'user') out.push({ role: 'user', content: (m.ctx ? m.ctx + '\n\n' : '') + m.content });
-      else if (m.api && m.api.length) out.push(...m.api);
+      else if (m.api && m.api.length) {
+        /* backstop: answer any tool_call left without a tool reply (older threads stopped mid-step), so OpenAI-compatible APIs accept the history */
+        for (let k = 0; k < m.api.length; k++) { const a = m.api[k]; out.push(a);
+          if (a.role === 'assistant' && a.tool_calls && a.tool_calls.length) { const got = new Set(); for (let j = k + 1; j < m.api.length && m.api[j].role === 'tool'; j++) got.add(m.api[j].tool_call_id);
+            let end = k + 1; while (end < m.api.length && m.api[end].role === 'tool') end++;
+            const missing = a.tool_calls.filter(tc => !got.has(tc.id)); if (missing.length) { out.push(...m.api.slice(k + 1, end)); missing.forEach(tc => out.push({ role: 'tool', tool_call_id: tc.id, content: '{"error":"cancelled by user"}' })); k = end - 1; } } }
+      }
       else { const t = (m.parts || []).filter(p => p.type === 'text').map(p => p.text).join(''); if (t) out.push({ role: 'assistant', content: t }); }
     }
     if (extra) out.push(...extra); return out;
@@ -106,7 +112,7 @@ const Agent = DS.agent = {
       let steps = 0, errorStreak = 0;
       while (steps++ < (s.maxSteps || 14)) {
         const profId = phase === 'plan' ? 'planner' : 'executor';
-        const sc = DS.toolkit.scope(this.toolDefs(phase), thread, text); const defs = sc.defs; thread._toolGuide = DS.toolkit.guide(defs, { hidden: sc.hidden });
+        const sc = DS.toolkit.scope(this.toolDefs(phase), thread, text); const defs = sc.defs; this._guides.set(thread, DS.toolkit.guide(defs, { hidden: sc.hidden }));
         const sys = await this.systemPrompt(thread, phase, profId); const messages = this.buildMessages(thread, sys); const provider = DS.providers.pick(thread); const route = thread.route && thread.route.provider === provider.id ? thread.route : null; let model = provider.id === 'sim' ? 'sim' : (route && route.model) || this.model(profId);
         msg.meta.model = model; msg.meta.provider = provider.id;
         const pre = { messages, tools: defs, model, thread }; await DS.kernel.hooks('beforeModel', pre); if (provider.id !== 'sim' && pre.model) model = pre.model; msg.meta.model = model;
@@ -132,13 +138,20 @@ const Agent = DS.agent = {
         for (let i = 0; i < calls.length;) {
           let j = i + 1; if (this.parallelSafe(calls[i].tc)) while (j < calls.length && this.parallelSafe(calls[j].tc)) j++;
           const batch = calls.slice(i, j); i = j;
-          const results = await Promise.all(batch.map(c => this.callTool(c.tc, thread, msg, c.part, signal)));
+          const settled = await Promise.allSettled(batch.map(c => this.callTool(c.tc, thread, msg, c.part, signal)));
+          let abortErr = null;
           batch.forEach((c, k) => {
-            if (c.part.status === 'err') errorStreak++; else errorStreak = 0;
-            msg.api.push({ role: 'tool', tool_call_id: c.tc.id, content: this.apiToolResult(results[k]) });
+            const st = settled[k];
+            if (st.status === 'rejected') { if (st.reason && st.reason.name === 'AbortError') abortErr = abortErr || st.reason; else { c.part.status = 'err'; c.part.result = { error: String(st.reason && st.reason.message || st.reason) }; } }
+            if (c.part.status === 'err') errorStreak++; else if (st.status === 'fulfilled') errorStreak = 0;
+            const content = st.status === 'fulfilled' ? this.apiToolResult(st.value) : JSON.stringify({ error: abortErr && st.reason === abortErr || (st.reason && st.reason.name === 'AbortError') ? 'cancelled by user' : (c.part.result && c.part.result.error) || 'failed' });
+            msg.api.push({ role: 'tool', tool_call_id: c.tc.id, content });
             if (c.tc.name === 'update_plan' && phase === 'plan') stoppedForPlan = true;
           }); emit(); Store.save();
-          if (signal.aborted) break;
+          if (abortErr || signal.aborted) {  /* every tool_call must have a reply, or strict APIs reject the next turn */
+            for (const c of calls.slice(i)) { if (c.part.status === 'pending') c.part.status = 'aborted'; msg.api.push({ role: 'tool', tool_call_id: c.tc.id, content: '{"error":"cancelled by user"}' }); }
+            Store.save(); throw abortErr || Object.assign(new Error('aborted'), { name: 'AbortError' });
+          }
         }
         if (stoppedForPlan) break;
         if (errorStreak === 2) msg.api.push({ role: 'user', content: '[FORGE] The last two tool calls failed. Read each error’s how_to_fix, call tools by their exact names with JSON arguments (see the quick reference), or call tool_help {"name":"<tool>"} before retrying. If a tool cannot do this, answer in text instead.' });
