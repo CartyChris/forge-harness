@@ -100,7 +100,7 @@ const UI = DS.shell = {
     if (!r._bound) { r._bound = true; r.addEventListener('click', e => { const b = e.target.closest('[data-r]'); if (!b) return; const it = this._rail.get(b.dataset.r); if (!it) return; try { it.run(); } catch (err) { DS.kernel.log('error', it.__owner || 'rail', err.message); ui.toast(it.label + ' failed: ' + err.message, 'err'); } setTimeout(() => this.renderRail(), 0); }); }
   },
   renderSide() {
-    const s = $('#side'); const w = Store.ws(); const th = Store.threads(); const act = Store.activeThread();
+    const s = $('#side'); const w = Store.ws(); const th = Store.threads().filter(t => !t.hidden); const act = Store.activeThread();
     s.innerHTML = '<div class="side-h"><svg class="logo" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#141a23"/><path d="M14 44h36l-6-10H30l-4-8h-6z" fill="var(--accent)"/><rect x="20" y="46" width="24" height="5" rx="2" fill="#ff8a3d"/></svg><span class="brand grow">Forge</span><button class="icon-btn" data-a="new" aria-label="New thread">' + DS.icons.plusChat + '</button></div>' +
       '<div style="padding:0 12px 6px"><button class="hchip" style="width:100%;justify-content:space-between" data-a="ws"><span class="mono">▣ ' + esc(w.name) + '</span><span class="muted">' + (w.backend.type === 'bridge' ? 'local' : 'browser') + ' ▾</span></button></div>' +
       '<div class="side-body" id="side-body"></div><div class="side-f"><span id="side-kernel"></span><span id="side-plugins"></span></div>';

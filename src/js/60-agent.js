@@ -7,7 +7,7 @@ const Agent = DS.agent = {
   tool(name) { return this.tools().find(t => t.name === name); },
   profile(id) { return DS.kernel.list('profile').find(p => p.id === id) || { id, system: '', label: id }; },
   model(profId) { const s = Store.settings(); return (this.profile(profId).model) || (s.models && s.models[profId]) || 'deepseek-chat'; },
-  stop(thread) { const r = thread && this.active.get(thread.id); if (r) { r.ac.abort(); Guard.cancelPending(); for (const [id, res] of this.asks) { res('(cancelled)'); this.asks.delete(id); } } },
+  stop(thread) { const r = thread && this.active.get(thread.id); if (r) { r.ac.abort(); Guard.cancelPending(thread); } },  /* scoped: stopping a subagent never cancels the parent's approvals or ask_user (ask_user rejects on its own thread's abort signal) */
   recordChange(thread, path, before) { thread.changes = thread.changes || {}; if (!(path in thread.changes)) thread.changes[path] = { before, ts: now() }; DS.bus.emit('changes:update', thread); },
   async revert(thread, path) {
     const c = thread.changes && thread.changes[path]; if (!c) return; if (c.before === null) await DS.fs.remove(path); else await DS.fs.write(path, c.before);
@@ -47,6 +47,8 @@ const Agent = DS.agent = {
   toolDefs(phase) {
     return this.tools().filter(t => phase !== 'plan' || READ_GATES.includes(t.gate || 'none') || t.name === 'update_plan').map(t => ({ name: t.name, description: t.description || '', parameters: t.parameters || { type: 'object', properties: {} } }));
   },
+  PARALLEL: new Set(['spawn_subagent', 'agents_status', 'web_search', 'web_fetch', 'fetch_url', 'fs_read', 'fs_list', 'fs_search', 'fs_stat', 'tool_help', 'memory_search', 'brain_search']),
+  parallelSafe(tc) { let n = tc.name; try { n = DS.toolkit.resolve(tc).name || n; } catch (_) {} const t = this.tool(n); return !!(t && (t.parallel === true || (t.parallel !== false && this.PARALLEL.has(n)))); },
   async callTool(tc, thread, msg, part, signal) {
     const t0 = now();
     const fail = (status, text, hint) => { part.status = status; part.result = { error: text }; part.summary = text; part.dur = now() - t0; return hint ? { error: text, how_to_fix: hint } : { error: text }; };
@@ -124,12 +126,19 @@ const Agent = DS.agent = {
         if (res.toolCalls.length) assistantApi.tool_calls = res.toolCalls.map(tc => ({ id: tc.id, type: 'function', function: { name: tc.name, arguments: tc.raw || JSON.stringify(tc.args || {}) } }));
         msg.api.push(assistantApi);
         if (!res.toolCalls.length) break;
-        for (const tc of res.toolCalls) {
-          const part = { type: 'tool', id: tc.id, name: tc.name, args: tc.args, status: 'pending', result: null, summary: '', startedAt: now() }; msg.parts.push(part); emit();
-          const result = await this.callTool(tc, thread, msg, part, signal);
-          if (part.status === 'err') errorStreak++; else errorStreak = 0;
-          msg.api.push({ role: 'tool', tool_call_id: tc.id, content: this.apiToolResult(result) }); emit(); Store.save();
-          if (tc.name === 'update_plan' && phase === 'plan') stoppedForPlan = true;
+        /* Consecutive parallel-safe calls (read-only tools, spawn_subagent, or tools declaring parallel:true) run together;
+           everything else runs in order. Results are always appended in the model's call order. */
+        const calls = res.toolCalls.map(tc => { const part = { type: 'tool', id: tc.id, name: tc.name, args: tc.args, status: 'pending', result: null, summary: '', startedAt: now() }; msg.parts.push(part); return { tc, part }; }); emit();
+        for (let i = 0; i < calls.length;) {
+          let j = i + 1; if (this.parallelSafe(calls[i].tc)) while (j < calls.length && this.parallelSafe(calls[j].tc)) j++;
+          const batch = calls.slice(i, j); i = j;
+          const results = await Promise.all(batch.map(c => this.callTool(c.tc, thread, msg, c.part, signal)));
+          batch.forEach((c, k) => {
+            if (c.part.status === 'err') errorStreak++; else errorStreak = 0;
+            msg.api.push({ role: 'tool', tool_call_id: c.tc.id, content: this.apiToolResult(results[k]) });
+            if (c.tc.name === 'update_plan' && phase === 'plan') stoppedForPlan = true;
+          }); emit(); Store.save();
+          if (signal.aborted) break;
         }
         if (stoppedForPlan) break;
         if (errorStreak === 2) msg.api.push({ role: 'user', content: '[FORGE] The last two tool calls failed. Read each error’s how_to_fix, call tools by their exact names with JSON arguments (see the quick reference), or call tool_help {"name":"<tool>"} before retrying. If a tool cannot do this, answer in text instead.' });
@@ -188,7 +197,7 @@ DS.coreTools = [
     async run(a, t) { const th = t.thread; th.plan = { goal: a.goal || (th.plan && th.plan.goal) || '', steps: (a.steps || []).map(s => ({ text: String(s.text || ''), status: ['pending', 'doing', 'done'].includes(s.status) ? s.status : 'pending' })), status: (th.plan && th.plan.status) || 'active', updated: now() }; DS.bus.emit('plan:update', th); return { ok: true, steps: th.plan.steps.length }; },
     summarize: (a, r) => r.steps + ' steps' },
   { name: 'ask_user', description: 'Ask the user a blocking question (optionally with choices). Use sparingly.', gate: 'none', parameters: { type: 'object', properties: { question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } }, required: ['question'] },
-    async run(a, t) { const part = t.part; part.ask = { question: a.question, options: a.options || [], answer: null }; part.status = 'running'; t.update(); const ans = await new Promise((res, rej) => { Agent.asks.set(part.id, res); t.signal.addEventListener('abort', () => rej(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true }); }); part.ask.answer = ans; return { answer: ans }; },
+    async run(a, t) { const part = t.part; part.ask = { question: a.question, options: a.options || [], answer: null }; part.status = 'running'; t.update(); const ans = await new Promise((res, rej) => { Agent.asks.set(part.id, res); t.signal.addEventListener('abort', () => { Agent.asks.delete(part.id); rej(Object.assign(new Error('aborted'), { name: 'AbortError' })); }, { once: true }); }); part.ask.answer = ans; return { answer: ans }; },
     summarize: (a, r) => '“' + String(r.answer).slice(0, 40) + '”' },
   { name: 'use_skill', description: 'Load the full instructions of a skill listed in the system prompt.', gate: 'none', parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
     async run(a) { const k = DS.kernel.list('skill').find(s => s.id === a.id); if (!k) throw new Error('no such skill: ' + a.id + ' (have: ' + DS.kernel.list('skill').map(s => s.id).join(', ') + ')'); return { id: k.id, instructions: k.instructions }; },

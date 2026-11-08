@@ -95,7 +95,7 @@ DS.safeJSON = safeJSON;
 DS.simProvider = {
   id: 'sim', label: 'Offline Sim (no key needed)', order: 99, models: ['sim'],
   available() { return true; },
-  async stream({ messages, tools, signal, onDelta }) {
+  async stream({ messages, tools, signal, onDelta, thread }) {
     const lastUser = (() => { for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === 'user') return i; return -1; })();
     let text = lastUser >= 0 ? String(typeof messages[lastUser].content === 'string' ? messages[lastUser].content : (messages[lastUser].content || []).map(p => p.text || '').join(' ')) : '';
     const after = messages.slice(lastUser + 1); const step = after.filter(m => m.role === 'assistant').length;
@@ -105,7 +105,7 @@ DS.simProvider = {
     const isCritic = /CRITIC/.test(sys) && !tools.length;
     const say = async t => { if (!t) return; for (let i = 0; i < t.length; i += 18) { if (signal && signal.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' }); onDelta && onDelta({ content: t.slice(i, i + 18) }); await DS.util.sleep(10); } };
     if (isCritic) { const t = 'Looks consistent with the request. (Offline critic: no model available to review in depth.)'; await say(t); return { content: t, reasoning: '', toolCalls: [], usage: null }; }
-    const sctx = { text, step, results, thread: DS.store.activeThread(), tools: (tools || []).map(t => t.name), files: Object.keys(Store.wsFiles()) };
+    const sctx = { text, step, results, thread: thread || DS.store.activeThread(), tools: (tools || []).map(t => t.name), files: Object.keys(Store.wsFiles()) };
     let script = null, intent = null;
     for (const it of DS.kernel.list('intent')) { try { if (it.match(text, sctx)) { script = await it.script(text, sctx); intent = it; break; } } catch (e) { DS.kernel.log('error', it.__owner || 'sim', 'intent ' + it.id + ' failed: ' + e.message); } }
     if (!script) {

@@ -245,6 +245,36 @@ DS.plugin({
       }).catch(e => { monacoP = null; throw e; });
       return monacoP;
     }
+    /* Ghost-text autocomplete (Continue-style "autocomplete" role). Off unless the
+       forge.continue service exists AND the user enabled it there. Debounced, cancellable,
+       never blocks typing; failures are silent (counted in ghostStats). */
+    const ghostStats = { asked: 0, shown: 0, failed: 0, last: '' };
+    let ghostReg = null;
+    function registerGhost(monaco) {
+      if (ghostReg || !monaco.languages || typeof monaco.languages.registerInlineCompletionsProvider !== 'function') return;
+      const provider = {
+        async provideInlineCompletions(model, position, _ctx, token) {
+          const cs = DS.service && DS.service('forge.continue');
+          if (!cs || typeof cs.complete !== 'function' || (cs.autocompleteOn && !cs.autocompleteOn())) return { items: [] };
+          await new Promise(r => setTimeout(r, 350));
+          if (token && token.isCancellationRequested) return { items: [] };
+          const off = model.getOffsetAt(position), all = model.getValue();
+          const prefix = all.slice(Math.max(0, off - 3000), off), suffix = all.slice(off, off + 1200);
+          if (!prefix.trim()) return { items: [] };
+          ghostStats.asked++;
+          const ac = new AbortController(); if (token && token.onCancellationRequested) token.onCancellationRequested(() => ac.abort());
+          try {
+            const r = await cs.complete({ prefix, suffix, language: model.getLanguageId ? model.getLanguageId() : '', path: (model.uri && model.uri.path) || '', signal: ac.signal });
+            const text = typeof r === 'string' ? r : (r && (r.text || r.completion)) || '';
+            if (!text || (token && token.isCancellationRequested)) return { items: [] };
+            ghostStats.shown++; ghostStats.last = text.slice(0, 80);
+            return { items: [{ insertText: text, range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column) }] };
+          } catch (e) { ghostStats.failed++; return { items: [] }; }
+        },
+        freeInlineCompletions() {}, disposeInlineCompletions() {}
+      };
+      try { ghostReg = monaco.languages.registerInlineCompletionsProvider({ pattern: '**' }, provider); ctx.effect(() => () => { try { ghostReg && ghostReg.dispose(); } catch (_) {} ghostReg = null; }); } catch (e) { console.warn('[ide] inline completions unavailable', e); }
+    }
     function monacoEngine(host, hooks, monaco) {
       const root = U.el('div', { class: 'ide-mon' }); host.appendChild(root);
       const bg = getComputedStyle(document.body).backgroundColor.match(/\d+/g) || [0, 0, 0]; const dark = (+bg[0] + +bg[1] + +bg[2]) < 384;
@@ -253,6 +283,7 @@ DS.plugin({
       ed.onDidChangeModelContent(() => hooks.change && hooks.change());
       ed.onDidChangeCursorPosition(e => hooks.cursor && hooks.cursor({ line: e.position.lineNumber, col: e.position.column }));
       const model = t => { let m = models.get(t.path); if (!m || m.isDisposed()) { m = monaco.editor.createModel(t.value, MLANG[t.lang] || 'plaintext'); models.set(t.path, m); } else if (m.getValue() !== t.value) m.setValue(t.value); return m; };
+      registerGhost(monaco);
       const api = {
         kind: 'monaco', root,
         load(t) { ed.setModel(model(t)); ed.updateOptions({ readOnly: !!t.ro }); if (t.view) ed.restoreViewState(t.view); },
@@ -494,7 +525,7 @@ DS.plugin({
     ctx.view({ id: 'ide', title: 'IDE', icon: 'code', order: 12, mount, onShow: () => { UI && (UI.layout(), UI.drawTree()); }, badge: () => { const n = S.tabs.filter(dirty).length; return n ? String(n) : ''; } });
 
     /* ═════ entry points ═════ */
-    const api = { open, save: () => save(), saveAll, active: () => { const t = cur(); return t && { path: t.path, lang: t.lang, ro: t.ro, dirty: dirty(t), value: UI && UI.eng ? UI.eng.value() : t.value }; }, tabs: () => S.tabs.map(t => ({ path: t.path, dirty: dirty(t), ro: t.ro })),
+    const api = { open, ghostStats: () => Object.assign({}, ghostStats), save: () => save(), saveAll, active: () => { const t = cur(); return t && { path: t.path, lang: t.lang, ro: t.ro, dirty: dirty(t), value: UI && UI.eng ? UI.eng.value() : t.value }; }, tabs: () => S.tabs.map(t => ({ path: t.path, dirty: dirty(t), ro: t.ro })),
       setValue: v => { if (UI && UI.eng && cur()) UI.eng.setValue(v); }, engine: () => UI && UI.eng ? UI.eng.kind : null, problems: () => S.problems.slice(), outline: () => { const t = cur(); return t ? outline(UI && UI.eng ? UI.eng.value() : t.value, t.lang) : []; },
       parseStack, sources: () => forgeSources().map(s => ({ path: s.path, name: s.name, lines: s.text.split('\n').length })), errors: () => S.errors.slice(), cursor: () => UI && UI.eng ? UI.eng.pos() : null,
       showStack(text) { S.stackText = String(text || ''); S.frames = parseStack(S.stackText); S.side = 'stack'; S.pane = isNarrow() ? 'stack' : 'code'; try { DS.shell.show('ide'); } catch (_) {} UI && (UI.layout(), UI.drawSide()); return S.frames; },

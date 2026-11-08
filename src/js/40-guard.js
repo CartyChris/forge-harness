@@ -46,9 +46,12 @@ const Guard = DS.guard = {
     }
     return { allowed: true };
   },
+  _stops: new WeakMap(),
   ask(req) {
+    const gen = req.thread ? (this._stops.get(req.thread) || 0) : 0;
     this._queue = this._queue.then(() => new Promise(resolve => {
-      let settled = false; const finish = (allow, always, close) => { if (settled) return; settled = true; this._openClose = null; if (close) close(); resolve({ allow, always }); };
+      if (req.thread && (this._stops.get(req.thread) || 0) !== gen) return resolve({ allow: false, always: false });  /* its run was stopped while queued */
+      let settled = false; const finish = (allow, always, close) => { if (settled) return; settled = true; this._openClose = null; this._openThread = null; if (close) close(); resolve({ allow, always }); };
       const d = req.detail || {}; const body = el('div');
       const label = { write: 'Edit files', shell: 'Run a command', net: 'Use the network', exec: 'Run code' }[req.action] || req.action;
       let preview = '';
@@ -61,12 +64,13 @@ const Guard = DS.guard = {
         { label: 'Deny', danger: true, onClick: c => finish(false, false, c) },
         ...(req.why ? [] : [{ label: 'Allow for thread', onClick: c => finish(true, true, c) }]),
         { label: 'Allow once', primary: true, onClick: c => finish(true, false, c) }], onClose: () => finish(false, false, null) });
-      this._openClose = () => finish(false, false, sh.close);
+      this._openClose = () => finish(false, false, sh.close); this._openThread = req.thread || null;
       DS.bus.emit('approval:open', req);
     }));
     return this._queue;
   },
-  cancelPending() { if (this._openClose) this._openClose(); }
+  /* cancelPending(thread): deny the open approval only if it belongs to that thread (no arg = any), and drop that thread's queued ones */
+  cancelPending(thread) { if (thread) this._stops.set(thread, (this._stops.get(thread) || 0) + 1); if (this._openClose && (!thread || this._openThread === thread)) this._openClose(); }
 };
 
 /* ═══════════════════════════ BRIDGE CLIENT (WebSocket RPC to the local execution daemon) ═══════════════════════════ */

@@ -9,7 +9,7 @@ DS.boot = async function () {
   (window.__pluginLoadErrors || []).forEach(e => DS.kernel.log('error', 'boot', 'plugin file ' + e.file + ': ' + e.error));
   await DS.plugins.loadUser(safe);
   await DS.shell.init();
-  if (!Store.activeThread() && Store.threads().length) Store.state.activeThread[Store.state.activeWorkspace] = Store.threads()[0].id;
+  { const vis = Store.threads().filter(t => !t.hidden); if (!Store.activeThread() && vis.length) Store.state.activeThread[Store.state.activeWorkspace] = vis[0].id; }
   Store.state.meta.booting = false; Store.state.meta.first = false; await Store.flush();
   window.addEventListener('beforeunload', () => Store.flushSync()); document.addEventListener('visibilitychange', () => { if (document.hidden) Store.flush(); });
   const b = document.getElementById('boot'); if (b) b.remove();
