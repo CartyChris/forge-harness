@@ -255,7 +255,8 @@ DS.plugin({
       const provider = {
         async provideInlineCompletions(model, position, _ctx, token) {
           const cs = DS.service && DS.service('forge.continue');
-          if (!cs || typeof cs.complete !== 'function' || (cs.autocompleteOn && !cs.autocompleteOn())) return { items: [] };
+          if (!cs || typeof cs.complete !== 'function') return { items: [] };
+          try { const ar = cs.roles && cs.roles().autocomplete; if (!ar || !ar.provider) return { items: [] }; } catch (_) { return { items: [] }; }  /* opt-in: only when an autocomplete role is set (Settings → Continue.dev) */
           await new Promise(r => setTimeout(r, 350));
           if (token && token.isCancellationRequested) return { items: [] };
           const off = model.getOffsetAt(position), all = model.getValue();
@@ -264,7 +265,7 @@ DS.plugin({
           ghostStats.asked++;
           const ac = new AbortController(); if (token && token.onCancellationRequested) token.onCancellationRequested(() => ac.abort());
           try {
-            const r = await cs.complete({ prefix, suffix, language: model.getLanguageId ? model.getLanguageId() : '', path: (model.uri && model.uri.path) || '', signal: ac.signal });
+            const lang = model.getLanguageId ? model.getLanguageId() : ''; const r = await cs.complete({ prefix, suffix, lang, language: lang, path: (model.uri && model.uri.path) || '', signal: ac.signal });
             const text = typeof r === 'string' ? r : (r && (r.text || r.completion)) || '';
             if (!text || (token && token.isCancellationRequested)) return { items: [] };
             ghostStats.shown++; ghostStats.last = text.slice(0, 80);

@@ -286,7 +286,7 @@ DS.plugin({
       ctx.data.set('roles', R); out.roles = R;
       if (assigned.main && opt.switchMain !== false && M && M.select) { try { M.select(R.main.provider, R.main.model); } catch (e) { out.errors.push('select main: ' + e.message); } }
       const ag = ctx.service('forge.agents');
-      if (ag) for (const fr of Object.keys(assigned)) { const fn = ['setRole', 'setRoleModel', 'assignRole'].find(f => typeof ag[f] === 'function'); if (fn) { try { ag[fn](fr, { provider: R[fr].provider, model: R[fr].model, from: 'continue' }); } catch (e) { out.errors.push('forge.agents.' + fn + ': ' + e.message); } } }
+      if (ag) for (const fr of Object.keys(assigned).filter(k => k === 'coder' || k === 'fast')) {  /* only roles that are also subagent roles */ const fn = ['setRole', 'setRoleModel', 'assignRole'].find(f => typeof ag[f] === 'function'); if (fn) { try { ag[fn](fr, { provider: R[fr].provider, model: R[fr].model, from: 'continue' }); } catch (e) { out.errors.push('forge.agents.' + fn + ': ' + e.message); } } }
       if (P.rules.length) { try { await writeRules(P.rules); ctx.data.set('rules', P.rules.slice()); out.rules = P.rules.length; } catch (e) { out.errors.push('AGENTS.md: ' + e.message); } }
       if (P.prompts.length) { const cur = prompts().filter(p => !P.prompts.some(q => q.name === p.name)); ctx.data.set('prompts', cur.concat(P.prompts)); registerPrompts(); out.prompts = P.prompts.map(p => cmdName(p.name)); }
       for (const s of P.mcp) {
@@ -383,7 +383,7 @@ DS.plugin({
       const ac = new AbortController(); let text = '', capped = false;
       const fwd = () => ac.abort(); if (o.signal) { if (o.signal.aborted) return ''; o.signal.addEventListener('abort', fwd, { once: true }); }
       try {
-        const res = await C.streamFor(r.provider, { messages, tools: [], signal: ac.signal, temperature: 0.2, forceModel: r.model, onDelta: d => { if (d && d.content) { text += d.content; if (text.length > 800 && !capped) { capped = true; ac.abort(); } } } });
+        const res = await C.streamFor(r.provider, { quiet: true, messages, tools: [], signal: ac.signal, temperature: 0.2, forceModel: r.model, onDelta: d => { if (d && d.content) { text += d.content; if (text.length > 800 && !capped) { capped = true; ac.abort(); } } } });
         text = (res && res.content) || text;
       } catch (e) { if (!(e && e.name === 'AbortError' && capped)) { if (o.signal && o.signal.aborted) return ''; throw e; } }
       finally { if (o.signal) o.signal.removeEventListener('abort', fwd); }

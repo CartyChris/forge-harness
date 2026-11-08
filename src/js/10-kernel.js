@@ -28,7 +28,7 @@ DS.POINTS = {
   messageAction: { helper: 'messageAction', summary: 'A button under assistant messages.', shape: '{ id, icon, label, when?(msg), run(msg, mctx) }' },
   settings:      { helper: 'settings',      summary: 'A section in the Settings view.', shape: '{ id, title, order?, render(el) }' },
   sidebarSection:{ helper: 'sidebar',       summary: 'A section in the left sidebar.', shape: '{ id, title?, order?, render(el), events?:[…] }' },
-  guardRule:     { helper: 'guardRule',     summary: 'A permission rule. Return {deny:reason} or {ask:reason} to veto/escalate.', shape: '{ id, check({action, detail, tier, thread}) → undefined | {deny} | {ask} }' },
+  guardRule:     { helper: 'guardRule',     summary: 'A permission rule. Return {deny:reason} or {ask:reason} to veto/escalate; add human:true so the auto-reviewer can never answer for the user.', shape: '{ id, check({action, detail, tier, thread}) → undefined | {deny} | {ask, human?} }' },
   hook:          { helper: 'hook',          summary: 'Lifecycle hook: run:start, run:end, beforeModel, afterModel, beforeTool, afterTool, user:message.', shape: 'ctx.hook(event, fn, {order})  beforeTool may return {block:reason} or {args}' },
   provider:      { helper: 'provider',      summary: 'A model backend.', shape: '{ id, label, models?:[…], available()→bool, stream({messages,tools,model,signal,onDelta,…}) → {content,reasoning,toolCalls,usage} }' },
   profile:       { helper: 'profile',       summary: 'An agent persona/frame (planner, executor, critic, …).', shape: '{ id, label, system, model?, tools?:["fs_read",…] }' },

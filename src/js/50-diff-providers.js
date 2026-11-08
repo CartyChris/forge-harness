@@ -99,7 +99,9 @@ DS.simProvider = {
     const lastUser = (() => { for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === 'user') return i; return -1; })();
     let text = lastUser >= 0 ? String(typeof messages[lastUser].content === 'string' ? messages[lastUser].content : (messages[lastUser].content || []).map(p => p.text || '').join(' ')) : '';
     const after = messages.slice(lastUser + 1); const step = after.filter(m => m.role === 'assistant').length;
-    const results = after.filter(m => m.role === 'tool').map(m => { try { return JSON.parse(m.content); } catch (_) { return m.content; } });
+    const raw = {}; try { const lm = thread && thread.messages && thread.messages[thread.messages.length - 1]; for (const p of (lm && lm.parts) || []) if (p.type === 'tool') raw[p.id] = p.result; } catch (_) {}
+    /* results the model saw may be spotlighted/datamarked by the shield; the Sim reads the raw tool result from the part when the API text isn't JSON */
+    const results = after.filter(m => m.role === 'tool').map(m => { try { return JSON.parse(m.content); } catch (_) { return raw[m.tool_call_id] !== undefined && raw[m.tool_call_id] !== null ? raw[m.tool_call_id] : m.content; } });
     if (/^Plan approved/i.test(text)) { for (let i = lastUser - 1; i >= 0; i--) if (messages[i].role === 'user' && !/^Plan approved/i.test(String(messages[i].content))) { text = String(messages[i].content); break; } }
     const sys = (messages[0] && messages[0].role === 'system') ? messages[0].content : '';
     const isCritic = /CRITIC/.test(sys) && !tools.length;

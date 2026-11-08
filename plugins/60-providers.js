@@ -184,7 +184,7 @@ DS.plugin({
     }
 
     /* ---------- identity ---------- */
-    function setIdentity(o) { identity = Object.assign({}, identity, o, { ts: Date.now() }); ctx.emit('models:identity', identity); DS.bus.emit('status:refresh'); }
+    const setIdentityReal = o => setIdentity(o); function setIdentity(o) { identity = Object.assign({}, identity, o, { ts: Date.now() }); ctx.emit('models:identity', identity); DS.bus.emit('status:refresh'); }
     function identityAnswer(id) {
       const i = id || identity;
       if (i.provider === 'sim') return 'I am the **Offline Sim** built into Forge — a scripted, local stand-in with no language model behind it (route: `sim`). Pick a real model with `/model`.';
@@ -202,7 +202,8 @@ DS.plugin({
     }
 
     /* ---------- the stream function per provider ---------- */
-    async function streamFor(pid, { messages, tools, signal, onDelta, temperature, forceModel }) {
+    async function streamFor(pid, { messages, tools, signal, onDelta, temperature, forceModel, quiet }) {
+      const setIdentity = quiet ? () => {} : setIdentityReal;  /* quiet: background calls (IDE autocomplete) never change the "current model" readout */
       const C = FP_CAT[pid]; const sl = sel(); const model = forceModel || (sl.provider === pid && sl.model) || C.defaultModel || (C.models || [])[0] || (live[pid] && live[pid][0] && live[pid][0].id);
       if (!C.keyless && !C.keyOptional && !keys()[pid] && !gateway.serverKey(pid)) { keyToast(pid, C); throw new Error(C.name + ': no API key. Open the Model picker (/model) and paste your key' + (C.signup ? '. Get free key ↗ ' + C.signup : '') + '.'); }
       if (!model) throw new Error(C.name + ': no model id yet. Open /model → ' + C.name + ' → Discover models (needs key + network) or type a custom model id.');

@@ -45,7 +45,7 @@ const Agent = DS.agent = {
     if (extra) out.push(...extra); return out;
   },
   toolDefs(phase) {
-    return this.tools().filter(t => phase !== 'plan' || READ_GATES.includes(t.gate || 'none') || t.name === 'update_plan').map(t => ({ name: t.name, description: t.description || '', parameters: t.parameters || { type: 'object', properties: {} } }));
+    return this.tools().filter(t => phase !== 'plan' || READ_GATES.includes(t.gate || 'none') || t.readonly === true || t.name === 'update_plan').map(t => ({ name: t.name, description: t.description || '', parameters: t.parameters || { type: 'object', properties: {} } }));
   },
   PARALLEL: new Set(['spawn_subagent', 'agents_status', 'web_search', 'web_fetch', 'fetch_url', 'fs_read', 'fs_list', 'fs_search', 'fs_stat', 'tool_help', 'memory_search', 'brain_search']),
   parallelSafe(tc) { let n = tc.name; try { n = DS.toolkit.resolve(tc).name || n; } catch (_) {} const t = this.tool(n); return !!(t && (t.parallel === true || (t.parallel !== false && this.PARALLEL.has(n)))); },

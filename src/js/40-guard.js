@@ -21,12 +21,12 @@ const Guard = DS.guard = {
   bump(thread, level) { if (!thread) return; const rank = { low: 0, medium: 1, high: 2 }; if (rank[level] > rank[thread.taint || 'low']) { thread.taint = level; DS.bus.emit('taint:change', thread); } },
   /* → { allowed, reason, cached } */
   async check(action, detail, thread, toolName) {
-    const t = this.tier(thread); let rule = t.matrix[action] || 'allow'; let why = '';
+    const t = this.tier(thread); let rule = t.matrix[action] || 'allow'; let why = '', human = false;
     const s = Store.settings();
     if (action === 'shell' && s.taintCheck) { const v = this.taint(detail && detail.cmd); if (v.level === 'high') return { allowed: false, reason: 'taint guard rejected the command (' + v.hits.join(', ') + ')' }; if (v.level === 'medium' && rule === 'allow' && t.id !== 'unrestricted') { rule = 'ask'; why = 'suspicious shell syntax'; } }
     if (thread && s.taintCheck && thread.taint && thread.taint !== 'low' && ['write', 'shell', 'exec'].includes(action) && rule === 'allow' && t.id !== 'unrestricted') { rule = 'ask'; why = 'this thread read untrusted content (taint: ' + thread.taint + ')'; }
     for (const r of DS.kernel.list('guardRule')) {
-      try { const res = await r.check({ action, detail, tier: t, thread, tool: toolName }); if (res && res.deny) return { allowed: false, reason: res.deny + ' (rule ' + r.id + ')' }; if (res && res.ask && rule !== 'deny') { rule = 'ask'; why = res.ask; } }
+      try { const res = await r.check({ action, detail, tier: t, thread, tool: toolName }); if (res && res.deny) return { allowed: false, reason: res.deny + ' (rule ' + r.id + ')' }; if (res && res.ask && rule !== 'deny') { rule = 'ask'; why = res.ask; if (res.human) human = true; } }
       catch (e) { DS.kernel.log('error', r.__owner || 'guard', 'rule ' + r.id + ' failed: ' + e.message); }
     }
     if (rule === 'deny') return { allowed: false, reason: 'tier “' + t.label + '” forbids ' + action };
@@ -34,7 +34,7 @@ const Guard = DS.guard = {
       if (thread && thread.allow && thread.allow[action] && !why) return { allowed: true, cached: true };
       /* optional reviewer (Codex "auto_review"): a plugin may set DS.guard.reviewer = async req → {decision:'allow'|'deny'|'ask', reason}.
          Never consulted for lethal-trifecta / Rule-of-Two asks — those always reach a human. */
-      if (this.reviewer && !/trifecta|Rule of Two|quarantine/i.test(why)) {
+      if (this.reviewer && !human && !/trifecta|Rule of Two|quarantine/i.test(why)) {  /* guardRule {ask, human:true} = a person must decide */
         try { const rv = await this.reviewer({ action, detail, thread, tool: toolName, tier: t, why });
           if (rv && (rv.decision === 'allow' || rv.decision === 'deny')) { DS.bus.emit('approval:result', { action, tool: toolName, thread, allowed: rv.decision === 'allow', reviewer: true, reason: rv.reason || '' }); DS.kernel.log(rv.decision === 'allow' ? 'info' : 'warn', 'guard', 'auto-review ' + rv.decision + ' ' + (toolName || action) + (rv.reason ? ': ' + rv.reason : '')); return rv.decision === 'allow' ? { allowed: true, reviewed: true, reason: rv.reason || '' } : { allowed: false, reason: 'auto-reviewer denied: ' + (rv.reason || '') }; }
         } catch (e) { DS.kernel.log('error', 'guard', 'reviewer failed: ' + e.message); }
