@@ -105,7 +105,7 @@ const Agent = DS.agent = {
       while (steps++ < (s.maxSteps || 14)) {
         const profId = phase === 'plan' ? 'planner' : 'executor';
         const sc = DS.toolkit.scope(this.toolDefs(phase), thread, text); const defs = sc.defs; thread._toolGuide = DS.toolkit.guide(defs, { hidden: sc.hidden });
-        const sys = await this.systemPrompt(thread, phase, profId); const messages = this.buildMessages(thread, sys); const provider = DS.providers.pick(); let model = provider.id === 'sim' ? 'sim' : this.model(profId);
+        const sys = await this.systemPrompt(thread, phase, profId); const messages = this.buildMessages(thread, sys); const provider = DS.providers.pick(thread); const route = thread.route && thread.route.provider === provider.id ? thread.route : null; let model = provider.id === 'sim' ? 'sim' : (route && route.model) || this.model(profId);
         msg.meta.model = model; msg.meta.provider = provider.id;
         const pre = { messages, tools: defs, model, thread }; await DS.kernel.hooks('beforeModel', pre); if (provider.id !== 'sim' && pre.model) model = pre.model; msg.meta.model = model;
         let curText = null;
@@ -116,11 +116,11 @@ const Agent = DS.agent = {
           emit();
         };
         let res;
-        try { res = await provider.stream({ messages: pre.messages || messages, tools: pre.tools || defs, model, signal, onDelta, temperature: s.temperature, thread, phase }); }
+        try { res = await provider.stream({ messages: pre.messages || messages, tools: pre.tools || defs, model, forceModel: route && route.model ? model : undefined, signal, onDelta, temperature: s.temperature, thread, phase }); }
         catch (e) { if (e.name === 'AbortError') throw e; throw e; }
         if (res.usage) { thread.usage = thread.usage || { in: 0, out: 0 }; thread.usage.in += res.usage.prompt_tokens || 0; thread.usage.out += res.usage.completion_tokens || 0; }
         await DS.kernel.hooks('afterModel', { res, thread });
-        const assistantApi = { role: 'assistant', content: res.content || '' };
+        const assistantApi = { role: 'assistant', content: res.content || '' }; if (res.reasoning && res.toolCalls.length) assistantApi.reasoning_content = res.reasoning;
         if (res.toolCalls.length) assistantApi.tool_calls = res.toolCalls.map(tc => ({ id: tc.id, type: 'function', function: { name: tc.name, arguments: tc.raw || JSON.stringify(tc.args || {}) } }));
         msg.api.push(assistantApi);
         if (!res.toolCalls.length) break;

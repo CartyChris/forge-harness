@@ -3,6 +3,7 @@
    they are tagged `unverified`; loaders try a small list of candidates and report exactly which ones failed.
    WebLLM (WebGPU) already lives in forge.labs as `webllm_local` and is not duplicated here. */
 const LA_WLLAMA_URLS = [
+  'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.8.1/esm/index.js',
   'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.6.1/esm/index.js',
   'https://cdn.jsdelivr.net/npm/@wllama/wllama@3.6.1/+esm',
   'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.1/esm/index.js',
@@ -135,8 +136,13 @@ DS.plugin({
         const W = mod.Wllama || mod.default.Wllama; const base = st.loadedUrl.wllama.replace(/\/esm\/index\.js$|\/\+esm$/, '');
         const paths = { 'single-thread/wllama.wasm': base + '/esm/single-thread/wllama.wasm', 'multi-thread/wllama.wasm': base + '/esm/multi-thread/wllama.wasm' };
         if (wl) { try { await wl.exit(); } catch (_) {} wl = null; wlModel = ''; }
-        const cdn = mod.WasmFromCDN || (mod.default && mod.default.WasmFromCDN); /* v3: WasmFromCDN; v2: explicit wasm paths */
-        const inst = new W(cdn || paths, { suppressNativeLog: true });
+        /* wllama 3.x wants pathConfig { default: <wasm url> } (README 3.8.1; the v2 single-/multi-thread keys are gone → "default is missing from pathConfig").
+           Prefer the package's own wasm-from-cdn map when it loads, else build { default } ourselves; v2 keeps its explicit paths. */
+        const v3 = /@3\./.test(st.loadedUrl.wllama || '');
+        let cfg = mod.WasmFromCDN || (mod.default && mod.default.WasmFromCDN) || null;
+        if (!cfg && v3) { try { const wm = await import(base + '/esm/wasm-from-cdn.js'); cfg = wm && (wm.default || wm.WasmFromCDN) || null; } catch (_) {} }
+        if (!cfg || typeof cfg !== 'object' || !cfg.default && v3) cfg = Object.assign({}, cfg || {}, { default: base + '/esm/wasm/wllama.wasm' });
+        const inst = new W(v3 ? cfg : (cfg || paths), { suppressNativeLog: true });
         st.wllama = 'downloading 0%'; refresh();
         const lo = { n_ctx: 2048, n_gpu_layers: 0, n_threads: self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1,
           progressCallback: ({ loaded, total }) => { st.progress.wllama = total ? Math.round(loaded * 100 / total) : 0; st.wllama = 'downloading ' + st.progress.wllama + '%'; refresh(); } };

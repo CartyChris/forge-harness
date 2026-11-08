@@ -3,6 +3,7 @@
    Model lists are EMPTY on purpose: the primary path is live GET {base}/models after you paste a key, plus a free-text
    custom model id. Everything is tagged `unverified` until a discovery call succeeds. Free tiers still need a key. */
 const FT_LIST = [
+  { id: 'deepseek', name: 'DeepSeek API', base: 'https://api.deepseek.com', signup: 'https://platform.deepseek.com/api_keys', ph: 'sk-...', tools: 'native', freeTier: false, models: ['deepseek-flash', 'deepseek-v4-pro', 'deepseek-v4-flash'], thinking: true, note: 'Official API (api-docs.deepseek.com, checked 2026-11-08): deepseek-flash = V4.1 Flash, deepseek-v4-pro; legacy deepseek-v4-flash still accepted. Thinking mode supports tool calls — Forge sends the reasoning back on every turn as DeepSeek requires. Paid, very low cost; new accounts sometimes get trial credit.' },
   { id: 'groq', name: 'Groq', base: 'https://api.groq.com/openai/v1', signup: 'https://console.groq.com/keys', ph: 'gsk_...', tools: 'native' },
   { id: 'gemini', name: 'Google AI Studio (Gemini)', base: 'https://generativelanguage.googleapis.com/v1beta/openai', signup: 'https://aistudio.google.com/apikey', ph: 'AIza...', tools: 'native', note: 'OpenAI-compatibility layer; discovered ids have the "models/" prefix stripped.' },
   { id: 'mistral', name: 'Mistral', base: 'https://api.mistral.ai/v1', signup: 'https://console.mistral.ai/api-keys', tools: 'native' },
@@ -31,7 +32,7 @@ DS.plugin({
       if (!alive || !core) return;
       FT_LIST.forEach((p, i) => {
         const pid = p.pid || p.id; if (core.has(pid)) return;
-        core.register(pid, { name: p.name, base: p.base, endpoint: p.base + '/chat/completions', discover: p.discover || p.base + '/models', models: [], keyless: false, freeTier: p.freeTier !== false, route: 'direct', tools: p.tools || 'prompt', sampling: true, signup: p.signup, ph: p.ph, verifyByDiscovery: true, tag: 'unverified', order: 60 + i,
+        core.register(pid, { name: p.name, base: p.base, endpoint: p.base + '/chat/completions', discover: p.discover || p.base + '/models', models: (p.models || []).map(id => ({ id, tools: p.tools === 'native' })), thinking: !!p.thinking, keyless: false, freeTier: p.freeTier !== false, route: 'direct', tools: p.tools || 'prompt', sampling: true, signup: p.signup, ph: p.ph, verifyByDiscovery: true, tag: 'unverified', order: 60 + i,
           note: (p.freeTier !== false ? '' : 'Key required. ') + (p.note || '') + ' Route direct → automatic gateway fallback on network/CORS failure.' }, ctx);
       });
       FT_LOCAL.forEach((p, i) => {

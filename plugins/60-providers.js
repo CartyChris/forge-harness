@@ -1,7 +1,7 @@
 /* forge.providers — multi-provider model routing ported from ATT (DeepSeek Harness Forge Ultimate).
    Honest route tags: direct | gateway | origin | local | sim. No fake model names: ids come from ATT lists or live /models. */
 const FP_CAT = {
-  pollinations: { name: 'Pollinations (free, no key)', endpoint: 'https://text.pollinations.ai/openai', endpoints: ['https://text.pollinations.ai/openai', 'https://gen.pollinations.ai/v1/chat/completions'], epNote: 'Primary text.pollinations.ai/openai (known working in ATT). Fallback gen.pollinations.ai/v1 is the newer OpenAI-compatible host per research — unverified from this sandbox.', models: ['openai-fast', 'openai', 'openai-large', 'gemini', 'deepseek', 'llama', 'mistral', 'qwen-coder', 'hermes', 'dolphin-mistral'], keyless: true, route: 'direct', tools: 'prompt', sampling: false },
+  pollinations: { name: 'Pollinations (free key)', endpoint: 'https://gen.pollinations.ai/v1/chat/completions', endpoints: ['https://gen.pollinations.ai/v1/chat/completions', 'https://text.pollinations.ai/openai'], epNote: 'Since late 2026 Pollinations asks for a key (401 “A valid API key is required”). Get a free publishable pk_ key at enter.pollinations.ai — it is meant for browser use. Without a key Forge still tries once in case anonymous access returns.', models: ['openai', 'gemini', 'openai-fast', 'openai-large', 'deepseek', 'llama', 'mistral', 'qwen-coder', 'hermes', 'dolphin-mistral'], keyOptional: true, signup: 'https://enter.pollinations.ai', ph: 'pk_… (publishable key, safe in a browser)', route: 'direct', tools: 'prompt', sampling: false },
   openrouter: { name: 'OpenRouter', endpoint: 'https://openrouter.ai/api/v1/chat/completions', models: ['openrouter/auto', 'deepseek/deepseek-chat-v3.2', 'anthropic/claude-sonnet-4.6', 'openai/gpt-5', 'google/gemini-3-flash-preview', 'meta-llama/llama-4-maverick', 'nousresearch/hermes-4-70b', 'cognitivecomputations/dolphin-mistral-24b-venice-edition', 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free', 'nousresearch/hermes-3-llama-3.1-405b:free'], keyless: false, route: 'direct', tools: 'native', sampling: true, signup: 'https://openrouter.ai/keys', ph: 'sk-or-...' },
   puter: { name: 'Puter.js (origin only)', endpoint: null, models: ['gpt-5-nano', 'gpt-4o-mini', 'claude-3-5-sonnet', 'gemini-1.5-flash', 'deepseek-chat', 'mistral-large', 'llama-3.3-70b', 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free'], keyless: true, route: 'origin', tools: 'prompt', sampling: false },
   uncloseai: { name: 'UncloseAI', endpoint: 'https://uncloseai.com/v1/chat/completions', models: ['hermes-4-70b', 'dolphin-3.0', 'gpt-oss-120b'], keyless: true, route: 'gateway', tools: 'prompt', sampling: false, tag: 'unverified' },
@@ -119,7 +119,13 @@ DS.plugin({
 
     /* ---------- request body + steering ---------- */
     function buildBody(pid, model, messages, tools, mode, temperature) {
-      const C = FP_CAT[pid]; const body = { model, messages, stream: true };
+      const C = FP_CAT[pid];
+      /* reasoning_content is required back by DeepSeek thinking+tools, and rejected or wasted elsewhere */
+      if (!C.thinking) messages = messages.map(m => m && m.reasoning_content !== undefined ? (({ reasoning_content, ...r }) => r)(m) : m);
+      const body = { model, messages, stream: true };
+      const think = !!(DS.store && DS.store.state && DS.store.state.toggles && DS.store.state.toggles.think);
+      if (C.thinking) { body.thinking = { type: think ? 'enabled' : 'disabled' }; if (think) body.reasoning_effort = 'high'; }
+      else if (think && pid === 'openrouter') body.reasoning = { effort: 'high' };
       if (pid === 'openrouter' || pid === 'nvidia') body.stream_options = { include_usage: true };
       if (temperature != null) body.temperature = temperature;
       if (tools && tools.length && mode === 'native') { body.tools = tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })); body.tool_choice = 'auto'; }
@@ -309,7 +315,7 @@ DS.plugin({
     /* ---------- catalog / select / refresh ---------- */
     function catalog() {
       const out = [];
-      for (const pid of Object.keys(FP_CAT)) { const C = FP_CAT[pid]; const unv = C.verifyByDiscovery && !verified[pid]; for (const m of modelsOf(pid)) out.push({ provider: pid, id: m.id, label: m.label || m.id, free: !!(C.keyless || m.free || C.freeTier), freeTier: !!C.freeTier, keyless: !!C.keyless, route: C.route, fileSafe: C.route === 'direct', context: m.context, note: m.note || C.warn || C.note, tag: unv ? 'unverified' : (m.free ? 'free' : (C.tag || (C.keyless ? 'free' : 'key'))), verified: !unv, custom: !!C.custom, lessFiltered: lfOf(m) || undefined, signup: C.signup || undefined }); }
+      for (const pid of Object.keys(FP_CAT)) { const C = FP_CAT[pid]; const unv = C.verifyByDiscovery && !verified[pid]; for (const m of modelsOf(pid)) out.push({ provider: pid, id: m.id, label: m.label || m.id, free: !!(C.keyless || m.free || C.freeTier), freeTier: !!C.freeTier, keyless: !!C.keyless, keyOptional: !!C.keyOptional, route: C.route, fileSafe: C.route === 'direct', context: m.context, note: m.note || C.warn || C.note, tag: unv ? 'unverified' : (m.free ? 'free' : (C.tag || (C.keyless ? 'free' : 'key'))), verified: !unv, custom: !!C.custom, lessFiltered: lfOf(m) || undefined, signup: C.signup || undefined }); }
       out.push({ provider: 'openai', id: (S().models && S().models.executor) || 'deepseek-chat', label: 'DeepSeek (core OpenAI-compatible)', free: false, keyless: false, route: 'direct', fileSafe: true, tag: 'key' });
       out.push({ provider: 'sim', id: 'sim', label: 'Offline Sim', free: true, keyless: true, route: 'sim', fileSafe: true, tag: 'sim' });
       return out;

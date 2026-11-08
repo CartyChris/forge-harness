@@ -15,12 +15,18 @@ DS.plugin({
     /* ---------- chain ---------- */
     const rank = r => ({ direct: 0, gateway: 1, origin: 2, local: 3 }[r] ?? 4);
     function catalog() { try { return (M() && M().catalog()) || []; } catch (_) { return []; } }
+    /* default chain: providers you have a key for first (they actually work), then keyless/key-optional direct routes,
+       then keyless gateway routes only when a gateway is configured. Max 8. */
+    const PREF = ['deepseek', 'groq', 'gemini', 'cerebras', 'openrouter', 'mistral', 'github', 'zai', 'nous', 'sambanova', 'huggingface', 'pollinations', 'llm7'];
     function defaultChain() {
-      const seen = new Set(), out = [];
-      catalog().filter(x => x.keyless && x.free && x.provider !== 'sim' && x.provider !== 'auto')
-        .sort((a, b) => rank(a.route) - rank(b.route))
-        .forEach(x => { if (seen.has(x.provider)) return; seen.add(x.provider); out.push({ provider: x.provider, model: x.id, route: x.route || '' }); });
-      return out.slice(0, 6);
+      const m = M(); const hasKey = id => { try { return !!(m && m.hasKey && m.hasKey(id)); } catch (_) { return false; } };
+      let gw = false; try { const g = DS.service('forge.gateway'); gw = !!(g && g.get && g.get()) || /^https?:/.test(location.protocol); } catch (_) {}
+      const seen = new Set(), out = []; const add = x => { if (seen.has(x.provider) || x.provider === 'sim' || x.provider === 'auto') return; seen.add(x.provider); out.push({ provider: x.provider, model: x.id, route: x.route || '' }); };
+      const cat = catalog(); const pr = id => { const i = PREF.indexOf(id); return i < 0 ? 99 : i; };
+      cat.filter(x => hasKey(x.provider) && (x.free || x.freeTier || x.provider === 'deepseek')).sort((a, b) => pr(a.provider) - pr(b.provider)).forEach(add);
+      cat.filter(x => (x.keyless || x.keyOptional) && x.route === 'direct').sort((a, b) => pr(a.provider) - pr(b.provider)).forEach(add);
+      if (gw) cat.filter(x => x.keyless && x.free && x.route !== 'direct' && x.route !== 'local').sort((a, b) => rank(a.route) - rank(b.route)).forEach(add);
+      return out.slice(0, 8);
     }
     const custom = () => { const c = ctx.data.get('chain', null); return Array.isArray(c) && c.length ? c : null; };
     const chain = () => custom() || defaultChain();

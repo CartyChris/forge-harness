@@ -33,8 +33,10 @@ DS.diff = {
 };
 
 DS.providers = {
-  pick() {
+  /* thread.route = {provider, model} pins a thread (e.g. a subagent) to its own model; otherwise the global choice */
+  pick(thread) {
     const s = Store.settings(); const list = DS.kernel.list('provider');
+    const r = thread && thread.route; if (r && r.provider && !s.forceSim) { const p = list.find(x => x.id === r.provider); if (p && (!p.available || p.available())) return p; }
     const want = s.forceSim ? 'sim' : s.provider;
     let p = list.find(x => x.id === want);
     if (!p || (p.available && !p.available())) p = list.find(x => x.id === 'sim') || list[0];
@@ -49,6 +51,7 @@ DS.openaiProvider = {
   available() { const s = Store.settings(); return !!(s.apiKey && s.baseUrl); },
   async stream({ messages, tools, model, signal, onDelta, temperature }) {
     const s = Store.settings(); const base = s.baseUrl.replace(/\/+$/, '');
+    if (!/deepseek/i.test(base)) messages = messages.map(m => m && m.reasoning_content !== undefined ? (({ reasoning_content, ...r }) => r)(m) : m);
     const body = { model, messages, stream: true, stream_options: { include_usage: true } };
     if (!/reasoner|o1|o3|r1/i.test(model) && temperature != null) body.temperature = temperature;
     if (tools && tools.length) { body.tools = tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } })); body.tool_choice = 'auto'; }

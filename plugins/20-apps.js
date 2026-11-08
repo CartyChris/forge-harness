@@ -163,6 +163,7 @@ DS.plugin({
       }
       return out;
     }
+    if (ctx.rail) ctx.rail({ id: 'preview', icon: 'play', label: 'Preview — run your apps & games', group: 'top', order: 42, run: () => DS.shell.show('preview'), active: () => DS.shell.current === 'preview' });
     ctx.view({ id: 'preview', title: 'Preview', icon: 'play', order: 15, mount(el) {
       el.innerHTML = '<div class="vhead"><h2>Preview</h2></div><div class="pv-bar"><select class="sel grow" data-r="pick" style="min-width:0"></select><div class="seg" data-r="dev"><button data-d="390">📱</button><button data-d="768">Tablet</button><button data-d="0" class="on">Full</button></div><button class="icon-btn" data-r="reload" title="Reload">' + DS.icon('redo') + '</button><button class="icon-btn" data-r="full" title="Fullscreen">' + DS.icon('expand') + '</button></div><div class="pv-wrap"><div class="pv-dev" data-r="dev-box" style="width:100%;height:100%"></div></div><div class="pv-bar"><b class="sm">Console</b><span class="chip" data-r="cnt">0</span><span class="grow"></span><button class="btn sm" data-r="clr">Clear</button><button class="btn sm pri" data-r="send" disabled>Send errors to agent</button></div><div class="pv-con" data-r="con"><div class="muted">No output yet.</div></div>';
       const $ = r => el.querySelector('[data-r="' + r + '"]');

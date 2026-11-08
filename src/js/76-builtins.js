@@ -63,7 +63,8 @@ DS.plugin({ name: 'core.composer', title: 'Composer extras', description: '@file
   ctx.composerAction({ id: 'attach-ws', icon: 'file', label: 'Attach a workspace file', desc: 'type @ to search', run: c => c.insert('@') });
   ctx.composerAction({ id: 'upload', icon: 'clip', label: 'Upload text from device', run: c => { const f = el('input', { type: 'file', multiple: 'multiple' }); f.onchange = async () => { for (const file of f.files) { if (file.size > 400000) { ui.toast(file.name + ' is too large (400 KB max)', 'warn'); continue; } c.addContext(file.name, await file.text()); } }; f.click(); } });
   ctx.pill({ id: 'think', label: 'Think', icon: 'atom', title: 'Use the planner/reasoning model for every step' });
-  ctx.hook('beforeModel', p => { if (DS.store.state.toggles.think && DS.providers.isLive()) p.model = DS.agent.model('planner'); });
+  /* Think: the core DeepSeek slot swaps to the planner model; catalog providers turn on their own thinking/reasoning switch instead (see forge.providers buildBody) — never send a DeepSeek model name to another provider */
+  ctx.hook('beforeModel', p => { if (DS.store.state.toggles.think && DS.providers.pick(p.thread).id === 'openai') p.model = DS.agent.model('planner'); });
 } });
 
 DS.plugin({ name: 'core.threads', title: 'Thread actions', apply(ctx) {
