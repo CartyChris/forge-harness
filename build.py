@@ -10,7 +10,7 @@ rd = lambda p: open(p, encoding='utf-8').read()
 args = sys.argv[1:]
 only = None
 if '--only' in args: only = [x.strip() for x in args[args.index('--only') + 1].split(',') if x.strip()]
-stamp = args[args.index('--stamp') + 1] if '--stamp' in args else datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M')
+stamp = args[args.index('--stamp') + 1] if '--stamp' in args else datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M')
 
 def esc_script(t): return t.replace('</script', '<\\/script')
 core_js = ''.join('\n\n/* ═══ %s ═══ */\n' % os.path.basename(f) + rd(f) for f in sorted(glob.glob(os.path.join(ROOT, 'src/js/*.js'))))
