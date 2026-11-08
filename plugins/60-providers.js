@@ -99,10 +99,12 @@ DS.plugin({
 
     /* ---------- prompt-based tool adapter ---------- */
     function toolPrompt(tools) {
-      return '[TOOL_PROTOCOL]\nYou cannot call functions natively. To use a tool, reply with EXACTLY one fenced block and nothing after it:\n```tool_call\n{"name":"<tool name>","arguments":{...}}\n```\nYou will then receive the result as a user message starting with [TOOL_RESULT]. When no tool is needed, answer normally.\nTools:\n' +
-        tools.map(t => '- ' + t.name + ': ' + String(t.description || '').slice(0, 160) + ' params=' + JSON.stringify((t.parameters && t.parameters.properties) || {}).slice(0, 300)).join('\n');
+      const T = DS.toolkit;
+      return '[TOOL_PROTOCOL]\nYou cannot call functions natively. To use a tool, write ONE fenced block like this and then STOP writing:\n```tool_call\n{"name":"fs_write","arguments":{"path":"/notes/a.md","content":"hello"}}\n```\nThe "name" must be one of the tool names below (never "tool_call" itself). Arguments are a JSON object. You will get the result back as a user message starting with [TOOL_RESULT]; then continue. When no tool is needed, just answer.\nTools (name(args) — what it does):\n' +
+        tools.map(t => '- ' + (T ? T.signature(t) : t.name) + ' — ' + String(t.description || '').replace(/\s+/g, ' ').slice(0, 140)).join('\n');
     }
-    function parsePromptTools(text) {
+    function parsePromptTools(text, tools) {
+      if (DS.toolkit) return DS.toolkit.parse(text, { names: (tools || []).map(t => t.name) });
       const calls = []; const re = /```tool_call\s*\n([\s\S]*?)```/g; let m;
       while ((m = re.exec(text))) { const j = DS.safeJSON(m[1].trim()); if (j && j.name) calls.push({ id: DS.util.uid('call'), name: j.name, args: j.arguments || j.args || {}, raw: JSON.stringify(j.arguments || j.args || {}) }); }
       return { calls, clean: text.replace(re, '').trim() };
@@ -210,7 +212,7 @@ DS.plugin({
         const r = await puter.ai.chat(msgs, { model, stream: true }); let content = '';
         for await (const part of r) { if (signal && signal.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' }); const t = part && (part.text || ''); if (t) { content += t; onDelta && onDelta({ content: t }); } }
         setIdentity(Object.assign(base, { route: 'origin', gateway: 'puter.js' }));
-        const p = parsePromptTools(content); return { content: p.clean, reasoning: '', toolCalls: p.calls, usage: null };
+        const p = parsePromptTools(content, tools); return { content: p.clean, reasoning: '', toolCalls: p.calls, usage: null };
       }
       let mode = toolMode[pid + '/' + model] || C.tools; if (!tools || !tools.length) mode = 'none';
       const go = async m => {
@@ -242,7 +244,8 @@ DS.plugin({
         else if (ctx.data.get('autoFallback', false) && pid !== 'pollinations' && e.name !== 'AbortError') { ctx.toast(e.message.slice(0, 120) + ' — falling back to Pollinations.', 'warn', 5000); return streamFor('pollinations', { messages, tools, signal, onDelta, temperature }); }
         else throw e;
       }
-      if (mode === 'prompt' && !out.toolCalls.length) { const p = parsePromptTools(out.content); if (p.calls.length) { out.content = p.clean; out.toolCalls = p.calls; } }
+      /* prompt mode — and native mode when a model wrote the call as text instead of using the API (common with reasoning models) */
+      if (tools && tools.length && !out.toolCalls.length && (mode === 'prompt' || /```|<tool_call>|<function|"name"\s*:/.test(out.content || ''))) { const p = parsePromptTools(out.content || '', tools); if (p.calls.length) { out.content = p.clean; out.toolCalls = p.calls; if (mode !== 'prompt') DS.kernel.log('info', 'providers', 'recovered ' + p.calls.length + ' tool call(s) written as text by ' + model); } }
       return out;
     }
 

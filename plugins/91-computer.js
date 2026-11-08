@@ -39,7 +39,7 @@ DS.plugin({
         const f = document.createElement('iframe'); f.setAttribute('sandbox', 'allow-scripts'); f.setAttribute('referrerpolicy', 'no-referrer');
         f.style.cssText = 'position:absolute;width:0;height:0;border:0;visibility:hidden'; f.className = 'cm-jsonp';
         const post = "function(m){try{parent.postMessage(m,'*')}catch(e){}}";
-        f.srcdoc = '<!doctype html><meta charset="utf-8"><script>var __p=' + post + ';window.' + cb + '=function(d){__p({__fj:"' + nonce + '",data:d})};</script><script src="' + esc(src) + '" onerror="__p({__fj:\'' + nonce + '\',err:\'script failed to load\'})"></script><script>setTimeout(function(){__p({__fj:"' + nonce + '",err:"no callback"})},' + (ms - 500) + ')</script>';
+        f.srcdoc = '<!doctype html><meta charset="utf-8"><script>var __p=' + post + ';window.' + cb + '=function(d){__p({__fj:"' + nonce + '",data:d})};<\/script><script src="' + esc(src) + '" onerror="__p({__fj:\'' + nonce + '\',err:\'script failed to load\'})"><\/script><script>setTimeout(function(){__p({__fj:"' + nonce + '",err:"no callback"})},' + (ms - 500) + ')<\/script>';
         let done = false; const fin = (fn, v) => { if (done) return; done = true; window.removeEventListener('message', on); clearTimeout(t); f.remove(); fn(v); };
         const on = e => { const d = e.data; if (!d || d.__fj !== nonce || e.source !== f.contentWindow) return; d.err ? fin(rej, new Error(d.err)) : fin(res, d.data); };
         const t = setTimeout(() => fin(rej, new Error('timeout')), ms);
@@ -286,7 +286,7 @@ DS.plugin({
     let viewEl = null; let navNonce = 'n' + Math.random().toString(36).slice(2);
     const NAVJS = n => `<script>(function(){var N=${JSON.stringify(n)};function P(m){m.__fnav=N;try{parent.postMessage(m,'*')}catch(e){}}
 document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a[href]');if(!a)return;var h=a.href;if(!/^https?:/i.test(h))return;e.preventDefault();var b=document.baseURI.split('#')[0];if(h.split('#')[0]===b&&h.indexOf('#')>0){var id=decodeURIComponent(h.split('#')[1]);var el=document.getElementById(id)||document.getElementsByName(id)[0];if(el)el.scrollIntoView();return;}P({href:h});},true);
-document.addEventListener('submit',function(e){var f=e.target;e.preventDefault();var m=(f.getAttribute('method')||'get').toLowerCase();var u=new URL(f.getAttribute('action')||document.baseURI,document.baseURI);if(m!=='get'){P({post:u.href});return;}new FormData(f).forEach(function(v,k){if(typeof v==='string')u.searchParams.set(k,v)});P({href:u.href});},true);})();</script>`;
+document.addEventListener('submit',function(e){var f=e.target;e.preventDefault();var m=(f.getAttribute('method')||'get').toLowerCase();var u=new URL(f.getAttribute('action')||document.baseURI,document.baseURI);if(m!=='get'){P({post:u.href});return;}new FormData(f).forEach(function(v,k){if(typeof v==='string')u.searchParams.set(k,v)});P({href:u.href});},true);})();<\/script>`;
     function pageDoc(t) {
       const base = /^https?:/.test(t.url) ? t.url : 'about:blank';
       let h = String(t.html || ''); const head = '<base href="' + esc(base) + '"><meta name="referrer" content="no-referrer"><style>body{font-family:-apple-system,system-ui,sans-serif;max-width:100%;overflow-wrap:anywhere}img,video,table{max-width:100%;height:auto}</style>';

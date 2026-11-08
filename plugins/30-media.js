@@ -168,7 +168,7 @@ DS.plugin({
     function imgEl(path) { const im = U.el('img', { class: 'md-img', alt: path }); readData(path).then(d => { if (d) im.src = d; }); im.onclick = () => openItem(path); return im; }
     async function audioEl(path) { const au = U.el('audio', { controls: 'controls', class: 'md-audio' }); const d = await readData(path); if (d) au.src = d; return au; }
     function mountScene(el, path) { readData(path).then(d => { if (d) try { player(el, d); } catch (e) { el.textContent = 'Bad scene: ' + e.message; } }); }
-    function svgSafe(src) { return String(src).replace(/<script[\s\S]*?</script>/gi, '').replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, '').replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '').replace(/(href\s*=\s*["'])\s*javascript:[^"']*/gi, '$1#'); }
+    function svgSafe(src) { return String(src).replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, '').replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '').replace(/(href\s*=\s*["'])\s*javascript:[^"']*/gi, '$1#'); }
     // ---------- tools ----------
     ctx.tool({ name: 'generate_image', label: 'Generate image', gate: 'write',
       description: 'Generate an image from a text prompt and save it as a PNG under /media. Uses an online image model when reachable, otherwise an offline procedural art renderer. Returns {path,width,height,source}. Show it to the user with a ```image fence containing the path.',

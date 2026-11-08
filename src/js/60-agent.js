@@ -27,6 +27,7 @@ const Agent = DS.agent = {
       prof.system ? ('Role — ' + prof.label + ': ' + prof.system) : '',
       phase === 'plan' ? 'PLAN MODE: do NOT modify anything. Explore with read-only tools, then call update_plan with concrete steps (and a one-sentence goal). Stop after that so the user can approve.' : (thread.mode === 'auto' ? 'For non-trivial work, call update_plan first with 3–7 steps, then execute them, updating step status as you go.' : ''),
       thread.plan && thread.plan.steps && thread.plan.steps.length ? 'Current plan:\n' + thread.plan.steps.map((st, i) => (i + 1) + '. [' + st.status + '] ' + st.text).join('\n') : '',
+      thread._toolGuide || '',
       agentsMd ? '## AGENTS.md\n' + agentsMd : '',
       skills.length ? '## Skills (load with use_skill when relevant)\n' + skills.map(k => '- ' + k.id + ': ' + (k.description || k.title)).join('\n') : '',
       ...DS.kernel.list('systemPrompt').map(p => { try { return typeof p.build === 'function' ? p.build(thread) : p.text; } catch (_) { return ''; } })
@@ -47,10 +48,16 @@ const Agent = DS.agent = {
     return this.tools().filter(t => phase !== 'plan' || READ_GATES.includes(t.gate || 'none') || t.name === 'update_plan').map(t => ({ name: t.name, description: t.description || '', parameters: t.parameters || { type: 'object', properties: {} } }));
   },
   async callTool(tc, thread, msg, part, signal) {
-    const def = this.tool(tc.name); const t0 = now();
-    const fail = (status, text) => { part.status = status; part.result = { error: text }; part.summary = text; part.dur = now() - t0; return { error: text }; };
-    if (!def) return fail('err', 'unknown tool “' + tc.name + '”');
-    if (tc.args && tc.args.__parseError) return fail('err', 'arguments were not valid JSON: ' + tc.args.__parseError);
+    const t0 = now();
+    const fail = (status, text, hint) => { part.status = status; part.result = { error: text }; part.summary = text; part.dur = now() - t0; return hint ? { error: text, how_to_fix: hint } : { error: text }; };
+    /* DS.toolkit repairs the common mistakes (wrapper names, near-miss names, string args, synonyms, types) */
+    const rs = DS.toolkit.resolve(tc); if (rs.notes.length) { part.fixed = rs.notes.slice(); DS.kernel.log('info', 'toolkit', tc.name + ': ' + rs.notes.join('; ')); }
+    if (rs.name !== tc.name) { tc.name = rs.name; part.name = rs.name; }
+    tc.args = rs.args;
+    const def = this.tool(tc.name);
+    if (!def) return fail('err', 'unknown tool “' + tc.name + '”', DS.toolkit.errorHint(tc.name, 'unknown'));
+    const vd = DS.toolkit.validate(def, tc.args || {}); tc.args = vd.args; if (vd.fixes.length) (part.fixed = part.fixed || []).push(...vd.fixes);
+    if (vd.errors.length) return fail('err', vd.errors.join('; '), DS.toolkit.errorHint(tc.name, 'args', vd.errors.join('; ')));
     const hk = await DS.kernel.hooks('beforeTool', { name: tc.name, args: tc.args, thread }); if (hk && hk.block) return fail('denied', 'blocked by hook: ' + hk.block);
     const args = hk.args || tc.args || {}; part.args = args;
     const tctx = { thread, signal, msg, part, log: (l, m) => DS.kernel.log(l, 'tool:' + tc.name, m), update: () => DS.bus.emit('msg:update', { thread, msg }), fs: DS.fs };
@@ -97,8 +104,8 @@ const Agent = DS.agent = {
       let steps = 0, errorStreak = 0;
       while (steps++ < (s.maxSteps || 14)) {
         const profId = phase === 'plan' ? 'planner' : 'executor';
-        const sys = await this.systemPrompt(thread, phase, profId); const messages = this.buildMessages(thread, sys);
-        const defs = this.toolDefs(phase); const provider = DS.providers.pick(); let model = provider.id === 'sim' ? 'sim' : this.model(profId);
+        const sc = DS.toolkit.scope(this.toolDefs(phase), thread, text); const defs = sc.defs; thread._toolGuide = DS.toolkit.guide(defs, { hidden: sc.hidden });
+        const sys = await this.systemPrompt(thread, phase, profId); const messages = this.buildMessages(thread, sys); const provider = DS.providers.pick(); let model = provider.id === 'sim' ? 'sim' : this.model(profId);
         msg.meta.model = model; msg.meta.provider = provider.id;
         const pre = { messages, tools: defs, model, thread }; await DS.kernel.hooks('beforeModel', pre); if (provider.id !== 'sim' && pre.model) model = pre.model; msg.meta.model = model;
         let curText = null;
@@ -125,7 +132,8 @@ const Agent = DS.agent = {
           if (tc.name === 'update_plan' && phase === 'plan') stoppedForPlan = true;
         }
         if (stoppedForPlan) break;
-        if (errorStreak >= 4) { lastPart('text').text += '\n\nStopping: four tool calls in a row failed.'; break; }
+        if (errorStreak === 2) msg.api.push({ role: 'user', content: '[FORGE] The last two tool calls failed. Read each error’s how_to_fix, call tools by their exact names with JSON arguments (see the quick reference), or call tool_help {"name":"<tool>"} before retrying. If a tool cannot do this, answer in text instead.' });
+        if (errorStreak >= 4) { lastPart('text').text += '\n\nStopping: four tool calls in a row failed. Each card above says why. Try again, ask in plain words, or pick a model with native tool support (model picker → “tools” badge).'; break; }
       }
       if (steps > (s.maxSteps || 14)) { lastPart('text').text += '\n\n_Reached the step limit (' + (s.maxSteps || 14) + '). Say “continue” to keep going._'; }
       if (stoppedForPlan) { thread.plan = thread.plan || { steps: [] }; thread.plan.status = 'proposed'; }
@@ -184,7 +192,14 @@ DS.coreTools = [
     summarize: (a, r) => '“' + String(r.answer).slice(0, 40) + '”' },
   { name: 'use_skill', description: 'Load the full instructions of a skill listed in the system prompt.', gate: 'none', parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
     async run(a) { const k = DS.kernel.list('skill').find(s => s.id === a.id); if (!k) throw new Error('no such skill: ' + a.id + ' (have: ' + DS.kernel.list('skill').map(s => s.id).join(', ') + ')'); return { id: k.id, instructions: k.instructions }; },
-    summarize: (a, r) => r.id }
+    summarize: (a, r) => r.id },
+  { name: 'tool_help', description: 'Look up tools: {} lists every tool with its signature; {"name":"x"} gives one tool’s full schema and an example call. Use it when unsure which tool or arguments to use.', gate: 'none', parameters: { type: 'object', properties: { name: { type: 'string', description: 'tool name (optional)' }, query: { type: 'string', description: 'words to search tool descriptions (optional)' } } },
+    async run(a) {
+      if (a.name) return DS.toolkit.help(a.name);
+      let ts = DS.agent.tools(); if (a.query) { const q = String(a.query).toLowerCase().split(/\s+/).filter(Boolean); ts = ts.filter(t => q.some(w => (t.name + ' ' + (t.description || '')).toLowerCase().includes(w))); }
+      return { count: ts.length, tools: ts.map(t => DS.toolkit.signature(t) + ' — ' + String(t.description || '').replace(/\s+/g, ' ').slice(0, 110)), note: 'Call a tool by its exact name with a JSON object of arguments.' };
+    },
+    summarize: (a, r) => a.name ? String(a.name) : (r.count + ' tools') }
 ];
 
 /* ═══════════ MCP client (HTTP JSON-RPC; stdio servers via the bridge) ═══════════ */
