@@ -1,0 +1,11 @@
+# Ember Ledger — a generative philosophy
+
+Ember Ledger is the art of accumulation. An image is not drawn; it is *entered*, one small warm mark at a time, the way a ledger fills line by line until the page itself becomes the record. No single mark matters. A thousand faint embers, each obeying the same quiet law, add up to a structure no hand would have placed, and the beauty lives in that sum: in density, in the soft pile-up of light where the field agrees with itself, in the thin places where it does not.
+
+The law is always a field. Seeded noise sets the weather of each page: a current that particles follow, a heat that decides where tallies harden into crystals, a slow detuning that lets orbits drift, a bending wind that branches ink. The algorithm is ninety percent of the work and the parameters are the last ten — they tune the instrument, never replace the composition. Every choice in the code is made so that the field, and not decoration, is what the viewer reads.
+
+A ledger is only worth keeping if it is exact. Same seed, same page: every random number comes from our own seeded generator, every noise value from our own seeded permutation, every mark is a deterministic unit of work that produces identical pixels whether it is drawn in one breath or across a hundred animation frames. Reproducibility is not a feature bolted on; it is the ethic of the movement. A seed is an address, and the work at that address never changes.
+
+Warmth is the palette's discipline. Embers glow additively on dark ground and press like ink into pale paper; the ruled lines of the ledger, the red margin, the grain of the sheet are always present but never loud. Color is taken from the house — the current theme, or a few curated inks — so the art belongs to the place it is made. Restraint is preferred: low alpha, many passes, light that is earned by repetition.
+
+This is meticulously crafted work. Every curve was tuned, every threshold argued over, every falloff tested at phone size and wall size; the result should look like the product of deep expertise and countless refinements, because it is. The studio exists to honour that labour: sweep seeds, read the gallery like a contact sheet, and keep only the pages where accumulation, flow and record-keeping arrive at the same quiet conclusion.

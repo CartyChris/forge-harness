@@ -1,0 +1,7 @@
+test/
+*.md
+!README.md
+.env*
+node_modules/
+*.log
+.DS_Store

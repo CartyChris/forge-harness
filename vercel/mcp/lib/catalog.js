@@ -1,0 +1,16 @@
+// Static, deterministic Forge provider catalog (route tags per Forge honesty rules).
+// route: direct = browser can call from file:// · gateway = needs Vercel/Edge proxy or local bridge · origin = needs http(s) origin · local = in-browser WebGPU/WASM · sim = simulated
+export const ROUTES = ['direct', 'gateway', 'origin', 'local', 'sim'];
+/** @type {ReadonlyArray<{id:string,name:string,route:string,keyless:boolean,free:boolean,baseUrl:string,modelsEndpoint:string|null,defaultOn:boolean,status:string,note:string}>} */
+export const PROVIDERS = Object.freeze([
+  { id: 'pollinations', name: 'Pollinations', route: 'direct', keyless: true, free: true, baseUrl: 'https://text.pollinations.ai/openai', modelsEndpoint: 'https://text.pollinations.ai/models', defaultOn: true, status: 'stable', note: 'Keyless OpenAI-compatible text endpoint; CORS-enabled.' },
+  { id: 'openrouter', name: 'OpenRouter', route: 'direct', keyless: false, free: true, baseUrl: 'https://openrouter.ai/api/v1', modelsEndpoint: 'https://openrouter.ai/api/v1/models', defaultOn: true, status: 'stable', note: 'Needs a user key; ":free" model ids cost nothing. CORS-enabled.' },
+  { id: 'puter', name: 'Puter.js', route: 'origin', keyless: true, free: true, baseUrl: 'https://js.puter.com/v2/', modelsEndpoint: null, defaultOn: false, status: 'stable', note: 'Requires an http(s) origin (not file://) and a Puter sign-in popup.' },
+  { id: 'webllm', name: 'WebLLM (in-browser)', route: 'local', keyless: true, free: true, baseUrl: 'webgpu://local', modelsEndpoint: null, defaultOn: false, status: 'stable', note: 'Runs on-device via WebGPU; large first download.' },
+  { id: 'deepseek', name: 'DeepSeek', route: 'gateway', keyless: false, free: false, baseUrl: 'https://api.deepseek.com', modelsEndpoint: 'https://api.deepseek.com/models', defaultOn: true, status: 'stable', note: 'Paid key; browser CORS not guaranteed, use the gateway.' },
+  { id: 'nvidia', name: 'NVIDIA NIM', route: 'gateway', keyless: false, free: true, baseUrl: 'https://integrate.api.nvidia.com/v1', modelsEndpoint: 'https://integrate.api.nvidia.com/v1/models', defaultOn: false, status: 'stable', note: 'Free-tier key; no browser CORS.' },
+  { id: 'groq', name: 'Groq', route: 'gateway', keyless: false, free: true, baseUrl: 'https://api.groq.com/openai/v1', modelsEndpoint: 'https://api.groq.com/openai/v1/models', defaultOn: false, status: 'stable', note: 'Free-tier key; route via gateway for reliability.' },
+  { id: 'venice', name: 'Venice', route: 'gateway', keyless: false, free: false, baseUrl: 'https://api.venice.ai/api/v1', modelsEndpoint: 'https://api.venice.ai/api/v1/models', defaultOn: false, status: 'unverified', note: 'OpenAI-compatible; CORS unverified.' },
+  { id: 'g4f', name: 'g4f.dev', route: 'gateway', keyless: true, free: true, baseUrl: 'https://g4f.dev/api', modelsEndpoint: null, defaultOn: false, status: 'unstable', note: 'Third-party relay; OFF by default — prompts pass through an unknown operator (privacy warning).' },
+  { id: 'sim', name: 'Simulator', route: 'sim', keyless: true, free: true, baseUrl: 'sim://local', modelsEndpoint: null, defaultOn: true, status: 'stable', note: 'Offline scripted responses for demos and tests.' },
+]);

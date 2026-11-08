@@ -1,0 +1,9 @@
+{
+  "name": "forge-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Forge MCP server (stateless Streamable HTTP on Vercel + stdio)",
+  "scripts": { "start": "node stdio.mjs", "test": "node test/selfcheck.mjs" },
+  "dependencies": { "@modelcontextprotocol/server": "2.4.0", "zod": "4.6.7" }
+}

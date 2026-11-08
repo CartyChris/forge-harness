@@ -1,0 +1,5 @@
+dist/
+node_modules/
+vercel/node_modules/
+vercel/mcp/node_modules/
+__pycache__/

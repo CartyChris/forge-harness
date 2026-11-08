@@ -1,0 +1,14 @@
+<!-- Forge MCP evaluation. All answers come from the static catalog (forge_provider_catalog / forge://catalog/providers) so they verify offline.
+     Skipped (unverifiable offline, live data changes): free-model counts, GitHub stars, npm versions, CDN sizes, search results. -->
+<evaluation>
+  <qa_pair><question>In Forge's provider catalog, exactly one provider is both keyless and callable directly from a file:// page. What is its provider id?</question><answer>pollinations</answer></qa_pair>
+  <qa_pair><question>How many providers does Forge's built-in provider catalog contain in total?</question><answer>10</answer></qa_pair>
+  <qa_pair><question>Which provider id in the Forge catalog requires an http(s) origin rather than working from file://?</question><answer>puter</answer></qa_pair>
+  <qa_pair><question>How many Forge providers must be reached through the gateway (Vercel/Edge proxy or local bridge)?</question><answer>5</answer></qa_pair>
+  <qa_pair><question>Among the Forge providers that need the gateway, which single one requires no API key? Give its id.</question><answer>g4f</answer></qa_pair>
+  <qa_pair><question>What status string does the Forge catalog assign to the Venice provider?</question><answer>unverified</answer></qa_pair>
+  <qa_pair><question>How many Forge providers are enabled by default?</question><answer>4</answer></qa_pair>
+  <qa_pair><question>Which Forge provider id runs models on-device in the browser (route tag "local")?</question><answer>webllm</answer></qa_pair>
+  <qa_pair><question>Which Forge provider is enabled by default, has no free tier, and must go through the gateway? Give its id.</question><answer>deepseek</answer></qa_pair>
+  <qa_pair><question>Counting every route tag, how many Forge providers need no API key at all?</question><answer>5</answer></qa_pair>
+</evaluation>
