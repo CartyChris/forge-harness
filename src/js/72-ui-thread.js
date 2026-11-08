@@ -8,7 +8,17 @@ const TV = DS.threadView = {
     this.msgsEl.addEventListener('scroll', () => { this.stick = this.msgsEl.scrollHeight - this.msgsEl.scrollTop - this.msgsEl.clientHeight < 90; });
     const b = DS.bus;
     b.on('thread:switch', () => this.renderAll()); b.on('workspace:switch', () => this.renderAll());
-    b.on('msg:update', ({ thread, msg }) => { if (thread === Store.activeThread()) this.updateMsg(msg); });
+    /* coalesce streaming updates: at most one render per frame (and ≥ 80 ms apart for very long answers) instead of one per token */
+    this._pend = new Map(); this._raf = 0; this._last = 0;
+    const flush = () => { this._raf = 0; this._last = performance.now(); const ms = [...this._pend.values()]; this._pend.clear(); for (const m of ms) { try { this.updateMsg(m); } catch (e) { console.error(e); } } };
+    this.flushUpdates = () => { if (this._raf) { cancelAnimationFrame(this._raf); clearTimeout(this._raf); } flush(); };
+    b.on('msg:update', ({ thread, msg }) => {
+      if (thread !== Store.activeThread()) return; this._pend.set(msg.id, msg); if (this._raf) return;
+      const big = msg.parts && msg.parts.reduce((n, p) => n + ((p.text && p.text.length) || 0), 0) > 20000; const wait = big ? Math.max(0, 80 - (performance.now() - this._last)) : 0;
+      if (document.hidden) { this._raf = setTimeout(flush, 250); return; }
+      this._raf = wait ? setTimeout(() => { this._raf = requestAnimationFrame(flush); }, wait) : requestAnimationFrame(flush);
+    });
+    b.on('run:end', () => this.flushUpdates());
     b.on('run:start', ({ thread }) => { if (thread === Store.activeThread()) { this.renderAll(); this.syncSend(); } });
     b.on('run:end', ({ thread }) => { if (thread === Store.activeThread()) { this.renderAll(); this.syncSend(); } });
     b.on('plan:update', ({ }) => this.renderPlan()); b.on('contrib:change', e => { if (['composerPill', 'composerAction', 'suggestion'].includes(e.point)) { this.renderPills(); if (e.point === 'suggestion') this.renderAll(); } });
