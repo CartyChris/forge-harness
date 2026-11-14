@@ -4,7 +4,7 @@ const THEME_BASE = { '--bg': '#0a0c10', '--bg-2': '#0f1218', '--surface': '#0f12
 DS.THEME_BASE = THEME_BASE;
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'idea';
 
-DS.plugin({ name: 'core.providers', title: 'Model providers', description: 'DeepSeek / OpenAI-compatible streaming and the offline Sim.', locked: true, apply(ctx) { ctx.provider(DS.openaiProvider); ctx.provider(DS.simProvider); } });
+DS.plugin({ name: 'core.providers', title: 'Model providers', description: 'OpenRouter / any OpenAI-compatible streaming and the offline Sim.', locked: true, apply(ctx) { ctx.provider(DS.openaiProvider); ctx.provider(DS.simProvider); } });
 
 DS.plugin({ name: 'core.profiles', title: 'Agent profiles', description: 'Planner, executor and critic personas.', apply(ctx) {
   ctx.profile({ id: 'planner', label: 'Planner', system: 'Think before acting. Explore read-only, then produce a short, concrete plan.' });

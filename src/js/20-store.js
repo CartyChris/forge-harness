@@ -32,8 +32,8 @@ const Store = DS.store = {
       threads: { [ws]: [] }, activeThread: { [ws]: null },
       settings: {
         permission: 'supervised', mode: 'auto', maxSteps: 14, taintCheck: true, sandbox: true,
-        provider: 'openai', baseUrl: 'https://api.deepseek.com', apiKey: '', forceSim: false,
-        models: { planner: 'deepseek-reasoner', executor: 'deepseek-chat', critic: 'deepseek-chat' },
+        provider: 'openai', baseUrl: 'https://openrouter.ai/api/v1', apiKey: '', forceSim: false,
+        models: { planner: 'openrouter/auto', executor: 'openrouter/auto', critic: 'openrouter/auto' },
         temperature: 0.3, think: false, verify: false, theme: 'obsidian', fontScale: 1,
         bridgeUrl: 'ws://127.0.0.1:8787', bridgeToken: '', autoBridge: false, enterToSend: 'auto',
         mcp: [], catalogs: [], showReasoning: true

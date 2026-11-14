@@ -1,4 +1,4 @@
-/* forge.providers — multi-provider model routing ported from ATT (DeepSeek Harness Forge Ultimate).
+/* forge.providers — multi-provider model routing ported from ATT (an earlier Forge build).
    Honest route tags: direct | gateway | origin | local | sim. No fake model names: ids come from ATT lists or live /models. */
 const FP_CAT = {
   pollinations: { name: 'Pollinations (free key)', endpoint: 'https://gen.pollinations.ai/v1/chat/completions', endpoints: ['https://gen.pollinations.ai/v1/chat/completions', 'https://text.pollinations.ai/openai'], epNote: 'Since late 2026 Pollinations asks for a key (401 “A valid API key is required”). Get a free publishable pk_ key at enter.pollinations.ai — it is meant for browser use. Without a key Forge still tries once in case anonymous access returns.', models: ['openai', 'gemini', 'openai-fast', 'openai-large', 'deepseek', 'llama', 'mistral', 'qwen-coder', 'hermes', 'dolphin-mistral'], keyOptional: true, signup: 'https://enter.pollinations.ai', ph: 'pk_… (publishable key, safe in a browser)', route: 'direct', tools: 'prompt', sampling: false },
