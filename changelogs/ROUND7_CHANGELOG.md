@@ -79,3 +79,21 @@
 - **Agent skills (addyosmani/agent-skills, MIT).** All 25 skills are bundled, from spec → plan → build → test → review → ship, and are available through `use_skill` as `as-*`. The routing meta-skill is a toggle, there is a viewer in Settings, and `/skills-addy` lists them. `use_skill` now also accepts skills whose instructions load lazily.
 - **Long-term memory (past.dev).** Adds `past_remember`, `past_recall` and `past_forget`, plus optional auto-recall into the prompt (with a token cap) and auto-ingest after each run. Both are off by default. The key is masked and only ever sent as the Authorization header. Without a key, these fall back to the local brain and say so. Field names come from past.dev's API reference but have only been tested against a mock.
 - Tests: `t_orca`, `t_ecc` (14), `t_agent_skills` (16) and `t_past_memory` (21) were added. All 13 suites report `FAILS: none` on the full build.
+
+## Round 7c (2026-11-17): free fallback before the offline Sim
+- **Free fallback (Continue-style).** The fallback runs when the chosen model has no key or fails before any text arrives: network/CORS errors, HTTP 401, 402, 403, 404, 408 or 429, 5xx, or 25 s with no reply. Forge then tries the free chain:
+  1. Your keyed free tiers: Groq, Gemini, OpenRouter `:free` and others.
+  2. Keyless endpoints, in this order: **Kilo Gateway → LLM7 → BlockRun → OVHcloud → Pollinations**.
+  3. The offline Sim, only after all of those fail.
+  - **Visibility:** a toast and the message chip name the model that actually answered.
+  - **Cooldowns:** rate-limited or failing models are skipped for a cooldown period.
+  - **Stickiness:** the model that answered is reused for 10 minutes.
+  - **When everything fails:** a one-time **"No free model answered"** sheet offers the best free options. These are Get key links for OpenRouter, Groq and Gemini, a Retry button, and on-device model setup.
+  - **No network calls:** choosing the Sim explicitly, or turning the fallback off (Settings → Router → Free fallback), never touches the network.
+  - **Helper features** fall back to their own offline heuristics instead of Sim text: Superagent triage and the shield reviewer.
+- **New keyless providers.** All three need no key, and browser CORS is untested for all of them.
+  - **Kilo Gateway** `https://ai-gateway.kilo.ai/api/v1`: `:free` models, about 200 requests/hour per IP, per the Kilo docs.
+  - **BlockRun** `https://blockrun.ai/api/v1`: NVIDIA-hosted free models, per-IP limit.
+  - **OVHcloud AI Endpoints** `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1`: anonymous use at 2 requests/minute per model. That anonymous access comes from third-party directories only.
+- **Not added:** OpenCode Zen. Its docs say the free models are for the OpenCode app only.
+- **Tests:** `t_freefallback` covers the no-key free answer, 429 → next, 401 keyed → free, the silent-endpoint timeout, all-fail → Sim + one-time prompt, no network when Sim is explicit or the fallback is off, and helpers getting an exhausted error. All 14 suites report `FAILS: none`.

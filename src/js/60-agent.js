@@ -126,6 +126,7 @@ const Agent = DS.agent = {
         let res;
         try { res = await provider.stream({ messages: pre.messages || messages, tools: pre.tools || defs, model, forceModel: route && route.model ? model : undefined, signal, onDelta, temperature: s.temperature, thread, phase }); }
         catch (e) { if (e.name === 'AbortError') throw e; throw e; }
+        if (provider.isFreeFallback && res) { try { const L = DS.service('forge.router') && DS.service('forge.router').last(); if (L && L.mode === 'free-fallback' && L.thread === thread.id && L.used) { const [pp, mm] = String(L.used).split('|'); msg.meta.provider = pp; if (mm) msg.meta.model = mm; msg.meta.via = 'free-fallback'; } } catch (_) {} }  /* tag who really answered */
         if (res.usage) { thread.usage = thread.usage || { in: 0, out: 0 }; thread.usage.in += res.usage.prompt_tokens || 0; thread.usage.out += res.usage.completion_tokens || 0; }
         await DS.kernel.hooks('afterModel', { res, thread });
         const assistantApi = { role: 'assistant', content: res.content || '' }; if (res.reasoning && res.toolCalls.length) assistantApi.reasoning_content = res.reasoning;

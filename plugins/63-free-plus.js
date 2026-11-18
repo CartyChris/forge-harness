@@ -3,6 +3,15 @@
    `unverified`. Model ids come only from that file or from live GET /models (Discover). No CORS bypass is claimed: route `direct` means the
    browser tries the endpoint itself and falls back to the gateway chain on a network/CORS failure. */
 const FX_LIST = [
+  { id: 'kilo', name: 'Kilo Gateway (free, no key)', base: 'https://ai-gateway.kilo.ai/api/v1', signup: 'https://kilo.ai/gateway', keyless: true, keyOptional: true, freeTier: true, tools: 'native',
+    models: ['z-ai/glm-5:free', 'minimax/minimax-m2.1:free'], ph: 'Kilo key (optional — free models need none)',
+    limits: 'Free (:free) models work without a key: ~200 requests/hour per IP (kilo.ai/docs/gateway/authentication, read 2026-11-17).', note: 'Model ids from the Kilo docs examples; Discover lists the current :free set. Browser CORS untested.' },
+  { id: 'blockrun', name: 'BlockRun (free, no key)', base: 'https://blockrun.ai/api/v1', signup: 'https://blockrun.ai', keyless: true, freeTier: true, tools: 'native',
+    models: ['nvidia/gpt-oss-120b', 'nvidia/deepseek-v4-flash', 'nvidia/mistral-nemotron', 'nvidia/nemotron-nano-9b-v2'], ph: '',
+    limits: 'No key; per-IP rate limit (HTTP 429). First call after idle may return FREE_MODEL_FAILED — retried by the fallback.', note: 'From blockrun.ai/signal (Aug 2026); free lineup may change — Discover reads /models. CORS untested.' },
+  { id: 'ovh', name: 'OVHcloud AI Endpoints (anonymous)', base: 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1', signup: 'https://www.ovhcloud.com/en/public-cloud/ai-endpoints/', keyless: true, keyOptional: true, freeTier: true, tools: 'native',
+    models: ['gpt-oss-120b', 'Meta-Llama-3_3-70B-Instruct', 'Mistral-Small-3.2-24B-Instruct-2506', 'gpt-oss-20b'], ph: 'OVH token (optional — raises 2 → 400 RPM)',
+    limits: 'Anonymous: 2 requests/minute per IP per model (beta). A free token raises it.', note: 'From third-party directories (free-llm.com); anonymous access unconfirmed on OVH docs. CORS untested.' },
   { id: 'llm7', name: 'LLM7.io', base: 'https://api.llm7.io/v1', signup: 'https://dash.llm7.io', keyOptional: true, freeTier: true, tools: 'prompt',
     models: ['gpt-oss:20b', 'deepseek-v4-pro', 'glm-5.2', 'mistral-Nemo-Instruct-2407', 'codestral-latest', 'gemma4:31b'], ph: 'free token (optional)',
     limits: 'Works without a key at a lower rate (reported ~30 RPM anon); free token raises it. Sources conflict — try keyless first.', note: 'Model ids from a third-party listing — Discover to confirm. CORS unverified.' },
@@ -31,7 +40,7 @@ DS.plugin({
       if (!alive || !c) return; core = c;
       FX_LIST.forEach((p, i) => {
         if (c.has(p.id)) return;
-        c.register(p.id, { name: p.name, base: p.base, endpoint: p.base + '/chat/completions', discover: p.base + '/models', models: p.models.slice(), keyless: false, keyOptional: !!p.keyOptional, freeTier: true,
+        c.register(p.id, { name: p.name, base: p.base, endpoint: p.base + '/chat/completions', discover: p.base + '/models', models: p.models.slice(), keyless: !!p.keyless, keyOptional: !!p.keyOptional, free: !!p.keyless, freeTier: true,
           route: 'direct', tools: p.tools, sampling: true, signup: p.signup, ph: p.ph, verifyByDiscovery: true, tag: p.verified ? undefined : 'unverified', order: 55 + i, limits: p.limits,
           note: p.limits + ' ' + p.note + ' Route direct → automatic gateway fallback on network/CORS failure.' }, ctx);
       });

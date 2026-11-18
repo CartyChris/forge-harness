@@ -39,10 +39,16 @@ DS.providers = {
     const r = thread && thread.route; if (r && r.provider && !s.forceSim) { const p = list.find(x => x.id === r.provider); if (p && (!p.available || p.available())) return p; }
     const want = s.forceSim ? 'sim' : s.provider;
     let p = list.find(x => x.id === want);
-    if (!p || (p.available && !p.available())) p = list.find(x => x.id === 'sim') || list[0];
+    const unavailable = !p || (p.available && !p.available());
+    /* free fallback (Continue-style): instead of dropping to the offline Sim, try the best reachable free model first.
+       Off when the user explicitly chose the Sim (forceSim) or turned it off (settings.freeFallback === false). */
+    if (!s.forceSim && want !== 'sim' && s.freeFallback !== false && typeof this.freeFallback === 'function') {
+      try { const w = this.freeFallback(unavailable ? null : p, thread); if (w) return w; } catch (e) { console.warn('[freeFallback]', e); }
+    }
+    if (unavailable) p = list.find(x => x.id === 'sim') || list[0];
     return p;
   },
-  isLive() { const p = this.pick(); return !!p && p.id !== 'sim'; }
+  isLive() { const p = this.pick(); return !!p && p.id !== 'sim' && p.id !== 'free-fallback'; }
 };
 
 /* ---------- OpenAI-compatible (DeepSeek by default) ---------- */

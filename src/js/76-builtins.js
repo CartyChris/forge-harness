@@ -75,7 +75,7 @@ DS.plugin({ name: 'core.threads', title: 'Thread actions', apply(ctx) {
 } });
 
 DS.plugin({ name: 'core.status', title: 'Status bar', apply(ctx) {
-  ctx.status({ id: 'model', align: 'left', order: 1, text: () => (DS.providers.isLive() ? '◆ ' + DS.agent.model('executor') : '◇ offline sim') });
+  ctx.status({ id: 'model', align: 'left', order: 1, text: () => (DS.providers.isLive() ? '◆ ' + DS.agent.model('executor') : (DS.providers.pick().id === 'free-fallback' ? '⇄ free fallback' : '◇ offline sim')) });
   ctx.status({ id: 'tier', align: 'left', order: 2, text: () => 'tier: ' + Guard.tier(Store.activeThread()).label, onClick: () => DS.views.tierSheet() });
   ctx.status({ id: 'bridge', align: 'left', order: 3, text: () => 'bridge ' + (DS.bridge.online ? '●' : '○'), onClick: () => DS.views.bridgeSheet() });
   ctx.status({ id: 'taint', align: 'left', order: 4, text: () => { const t = Store.activeThread(); return t && t.taint && t.taint !== 'low' ? '⚠ taint ' + t.taint : ''; } });

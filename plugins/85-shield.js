@@ -313,7 +313,7 @@ DS.plugin({
       const ac = new AbortController(); const to = setTimeout(() => ac.abort(), 20000); let txt = '';
       try {
         await pr.stream({ messages: [{ role: 'system', content: 'You review tool approvals for a coding agent. Reply with exactly one line: ALLOW: <reason> or DENY: <reason> or ASK: <reason>. DENY anything destructive, exfiltrating, touching secrets or leaving the workspace. ASK when unsure.' }, { role: 'user', content: JSON.stringify({ action: req.action, tool: req.tool, detail: { path: (req.detail || {}).path, cmd: String((req.detail || {}).cmd || '').slice(0, 600), args: JSON.stringify((req.detail || {}).args || {}).slice(0, 800) }, threadTaint: (req.thread && req.thread.taint) || 'low' }) }], tools: [], model: undefined, signal: ac.signal, onDelta: d => { if (d.content) txt += d.content; }, temperature: 0 });
-      } catch (e) { return { decision: 'ask', reason: 'reviewer unavailable: ' + e.message }; } finally { clearTimeout(to); }
+      } catch (e) { if (e && e.freeFallbackExhausted) return pre; return { decision: 'ask', reason: 'reviewer unavailable: ' + e.message }; } finally { clearTimeout(to); }
       const m = txt.trim().match(/^(ALLOW|DENY|ASK)\s*:?\s*(.*)/i); if (!m) return { decision: 'ask', reason: 'reviewer gave no clear verdict' };
       return { decision: m[1].toLowerCase(), reason: 'model: ' + m[2].slice(0, 160) };
     }

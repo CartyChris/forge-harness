@@ -17,7 +17,7 @@ DS.plugin({
     function catalog() { try { return (M() && M().catalog()) || []; } catch (_) { return []; } }
     /* default chain: providers you have a key for first (they actually work), then keyless/key-optional direct routes,
        then keyless gateway routes only when a gateway is configured. Max 8. */
-    const PREF = ['deepseek', 'groq', 'gemini', 'cerebras', 'openrouter', 'mistral', 'github', 'zai', 'nous', 'sambanova', 'huggingface', 'pollinations', 'llm7'];
+    const PREF = ['deepseek', 'groq', 'gemini', 'cerebras', 'openrouter', 'mistral', 'github', 'zai', 'nous', 'sambanova', 'huggingface', 'kilo', 'llm7', 'blockrun', 'ovh', 'pollinations'];
     function defaultChain() {
       const m = M(); const hasKey = id => { try { return !!(m && m.hasKey && m.hasKey(id)); } catch (_) { return false; } };
       let gw = false; try { const g = DS.service('forge.gateway'); gw = !!(g && g.get && g.get()) || /^https?:/.test(location.protocol); } catch (_) {}
@@ -26,7 +26,7 @@ DS.plugin({
       cat.filter(x => hasKey(x.provider) && (x.free || x.freeTier || x.provider === 'deepseek')).sort((a, b) => pr(a.provider) - pr(b.provider)).forEach(add);
       cat.filter(x => (x.keyless || x.keyOptional) && x.route === 'direct').sort((a, b) => pr(a.provider) - pr(b.provider)).forEach(add);
       if (gw) cat.filter(x => x.keyless && x.free && x.route !== 'direct' && x.route !== 'local').sort((a, b) => rank(a.route) - rank(b.route)).forEach(add);
-      return out.slice(0, 8);
+      return out.slice(0, 10);
     }
     const custom = () => { const c = ctx.data.get('chain', null); return Array.isArray(c) && c.length ? c : null; };
     const chain = () => custom() || defaultChain();
@@ -98,18 +98,29 @@ DS.plugin({
         if (!p || p.id === 'auto') { tried.push({ key: k, result: 'missing' }); continue; }
         if (p.available && !p.available()) { tried.push({ key: k, result: 'unavailable' }); continue; }
         let started = false; const buf = { content: '', reasoning: '' }; const t0 = now();
+        /* optional first-byte timeout (free fallback): a silent endpoint must not stall the whole chain */
+        let timedOut = false, tm = null, ac = null, unlink = null;
+        if (opts.firstByteMs) {
+          ac = new AbortController(); const up = opts.signal;
+          if (up) { if (up.aborted) ac.abort(); const f = () => ac.abort(); up.addEventListener('abort', f, { once: true }); unlink = () => up.removeEventListener('abort', f); }
+          tm = setTimeout(() => { timedOut = true; ac.abort(); }, opts.firstByteMs);
+        }
         const onDelta = d => {
-          if (!d) return; if (d.content || d.reasoning || d.toolDelta) started = true;
+          if (!d) return; if (d.content || d.reasoning || d.toolDelta) { started = true; if (tm) { clearTimeout(tm); tm = null; } }
           if (buffer) { if (d.content) buf.content += d.content; if (d.reasoning) buf.reasoning += d.reasoning; return; }
           opts.onDelta && opts.onDelta(d);
         };
         try {
-          const r = await p.stream(Object.assign({}, opts, { model: c.model, forceModel: c.model, onDelta }));
+          const r = await p.stream(Object.assign({}, opts, { model: c.model, forceModel: c.model, onDelta }, ac ? { signal: ac.signal } : {}));
+          if (tm) clearTimeout(tm); if (unlink) unlink();
           const cc = cools(); if (cc[k]) { delete cc[k]; ctx.data.set('cool', cc); }
           tried.push({ key: k, result: 'ok', ms: now() - t0 });
           return { r: r || { content: buf.content, reasoning: '', toolCalls: [], usage: null }, c, buf };
-        } catch (e) {
-          if (e && e.name === 'AbortError') throw e;
+        } catch (e0) {
+          if (tm) clearTimeout(tm); if (unlink) unlink();
+          let e = e0;
+          if (timedOut && !started) e = new Error('timed out: no reply within ' + Math.round(opts.firstByteMs / 1000) + 's');
+          else if (e && e.name === 'AbortError') throw e;
           const info = classify(e);
           if (started && !buffer) { /* text already reached the user: never retry (no duplicate output) */
             tried.push({ key: k, result: 'failed-mid-stream', status: info.status, error: info.msg });
@@ -177,6 +188,87 @@ DS.plugin({
     }
     ctx.provider({ id: 'auto', label: 'Auto · free failover', order: 15, models: ['auto'], route: 'router', available: () => chain().length > 0, stream });
 
+    /* ---------- free fallback (Continue-style) ----------
+       Whenever Forge would otherwise answer with the offline Sim — no key for the chosen provider, or the chosen provider
+       fails before any text arrives (network/CORS, 401/402/403/404/408/429, 5xx, silent for 25 s) — it first tries the
+       free chain (your keyed free tiers, then keyless endpoints), and only then the Sim. Every hop is reported; nothing
+       is silently swapped: the reply is tagged with who answered and a toast says why. */
+    const ffOn = () => S().freeFallback !== false;
+    const FB_STATUS = new Set([401, 402, 403, 404, 408, 409, 425, 429]);
+    const worthy = e => { const i = classify(e); return i.net || i.retry || FB_STATUS.has(i.status) || /timed out|unavailable|no key|api key|no candidate answered/i.test(i.msg); };
+    const shown = new Set(); let offeredThisSession = false;
+    function note(key, msg, kind) { if (shown.has(key)) return; shown.add(key); try { DS.ui.toast(msg, kind || 'warn', 5200); } catch (_) {} }
+    function offerBest(why) {
+      if (offeredThisSession) return; offeredThisSession = true;
+      try { ctx.emit('freefallback:sim', { why }); } catch (_) {}
+      if (ctx.data.get('noOffer', false)) return note('sim', 'No free model reachable — answered by the offline Sim. ' + why, 'warn');
+      ctx.setTimeout(() => { try { openBest(why); } catch (_) {} }, 50);
+    }
+    const BEST = [
+      { t: 'Kilo Gateway — free models, no key', d: 'Keyless :free models (≈200 requests/hour per IP). Tried automatically.', act: 'retry' },
+      { t: 'OpenRouter — free key, many :free models', d: 'One free key unlocks dozens of free models. Best overall free option.', url: 'https://openrouter.ai/keys', pid: 'openrouter' },
+      { t: 'Groq — free key, very fast', d: 'Generous free tier (Llama, Qwen, GPT-OSS).', url: 'https://console.groq.com/keys', pid: 'groq' },
+      { t: 'Google Gemini — free key', d: 'Free tier on Gemini Flash models.', url: 'https://aistudio.google.com/apikey', pid: 'gemini' },
+      { t: 'On-device model (works offline)', d: 'Download a small model once; runs in this browser with no network.', act: 'local' }
+    ];
+    function openBest(why) {
+      const esc = DS.util.esc; const node = document.createElement('div');
+      node.innerHTML = '<p class="sm">' + esc('Forge tried every free model it could reach and none answered, so this reply came from the offline Sim (a scripted demo, not an AI).') + '</p>' +
+        (why ? '<p class="xs muted" style="overflow-wrap:anywhere">' + esc(why.slice(0, 400)) + '</p>' : '') +
+        '<div class="sec-t">Best free options</div>' + BEST.map((b, i) => '<div class="li"><div class="info"><div class="nm">' + esc(b.t) + '</div><div class="ds">' + esc(b.d) + '</div></div>' +
+          (b.url ? '<a class="btn sm pri" target="_blank" rel="noopener" href="' + esc(b.url) + '">Get key</a>' + (b.pid ? '<button class="btn sm" data-key="' + i + '">Paste key</button>' : '') : '<button class="btn sm pri" data-act="' + i + '">' + (b.act === 'retry' ? 'Retry now' : 'Set up') + '</button>') + '</div>').join('') +
+        '<label class="row sm" style="margin-top:10px;gap:8px"><input type="checkbox" data-noask> Don\'t show this again (a small notice instead)</label>';
+      const sh = DS.ui.sheet({ title: 'No free model answered', node });
+      node.addEventListener('click', async ev => {
+        const k = ev.target.closest('[data-key]'), a = ev.target.closest('[data-act]'), n = ev.target.closest('[data-noask]');
+        if (n) { ctx.data.set('noOffer', !!n.checked); return; }
+        if (k) { const b = BEST[+k.dataset.key]; const v = await Promise.resolve(DS.ui.promptText(b.t + ' key', '', 'paste key')).catch(() => null); if (v && M() && M().setKey) { M().setKey(b.pid, String(v).trim()); clearCool(); DS.ui.toast('Key saved — the free fallback will use ' + b.pid + ' next.', 'ok'); sh && sh.close && sh.close(); } }
+        if (a) { const b = BEST[+a.dataset.act]; if (b.act === 'retry') { clearCool(); offeredThisSession = false; DS.ui.toast('Cooldowns cleared — send again to retry the free chain.', 'ok'); } else { try { DS.shell.show('localai'); } catch (_) { try { DS.shell.show('models'); } catch (_) {} } } sh && sh.close && sh.close(); }
+      });
+    }
+    async function ffStream(primary, opts) {
+      opts = opts || {}; let started = false; const od = opts.onDelta;
+      const o2 = Object.assign({}, opts, { onDelta: d => { if (d && (d.content || d.reasoning || d.toolDelta)) started = true; od && od(d); } });
+      let why = '';
+      if (primary) {
+        try { return await primary.stream(o2); }
+        catch (e) { if ((e && e.name === 'AbortError') || started || !worthy(e)) throw e; why = (primary.label || primary.id) + ': ' + classify(e).msg; }
+      } else why = 'no key / provider unavailable for "' + (S().provider || '?') + '"';
+      const online = typeof navigator === 'undefined' || navigator.onLine !== false;
+      if (online) {
+        const tid = (opts.thread && opts.thread.id) || 'none'; const tried = [];
+        const base = chain().filter(c => !primary || c.provider !== primary.id);
+        const st = sticky[tid]; if (st && st.until > now()) { const i = base.findIndex(c => keyOf(c) === st.key); if (i > 0) base.unshift(base.splice(i, 1)[0]); }
+        if (base.length) {
+          const a = await attempt(base, Object.assign({}, o2, { firstByteMs: +S().freeFallbackFirstByteMs || 25000 }), false, tried).catch(e => { if (e && e.name === 'AbortError') throw e; if (started) throw e; return null; });
+          if (a) {
+            const used = keyOf(a.c); sticky[tid] = { key: used, until: now() + STICKY_MS };
+            record({ thread: tid, ts: now(), tried, used, mode: 'free-fallback', why });
+            note('ok|' + used, 'Free fallback: answered by ' + used.replace('|', ' · ') + (primary ? ' (' + (primary.label || primary.id) + ' failed)' : ' (no key set — add one in Models for your own pick)'), 'ok');
+            return a.r;
+          }
+          record({ thread: tid, ts: now(), tried, used: 'sim', mode: 'free-fallback', why });
+          why += ' · free chain: ' + (tried.map(t => t.key + ' ' + t.result).join(', ') || 'empty');
+        } else why += ' · free chain is empty';
+      } else why += ' · browser is offline';
+      if (started) throw new Error('free fallback: stream already started');
+      const sim = DS.kernel.list('provider').find(p => p.id === 'sim');
+      /* only chat runs (they pass a thread) end in the Sim; helper calls (triage, reviewers…) get an error and use their own offline path */
+      if (!sim || !opts.thread) { const err = new Error('No free model answered — ' + why); err.freeFallbackExhausted = true; throw err; }
+      offerBest(why);
+      return sim.stream(opts);
+    }
+    const wrapCache = new WeakMap(); let bare = null;
+    DS.providers.freeFallback = primary => {
+      if (!ffOn()) return null;
+      if (primary && (primary.id === 'sim' || primary.local === true && primary.id === 'sim')) return null;
+      if (!primary) { if (!bare) bare = { id: 'free-fallback', label: 'Free fallback', route: 'router', models: ['auto'], isFreeFallback: true, available: () => true, stream: o => ffStream(null, o) }; return bare; }
+      let w = wrapCache.get(primary);
+      if (!w) { w = Object.create(primary); w.stream = o => ffStream(primary, o); w.isFreeFallback = true; wrapCache.set(primary, w); }
+      return w;
+    };
+    ctx.effect(() => () => { if (DS.providers.freeFallback) delete DS.providers.freeFallback; });
+
     /* ---------- control ---------- */
     const active = () => S().provider === 'auto' && !S().forceSim;
     let prev = null;
@@ -207,7 +299,7 @@ DS.plugin({
       if (x.last) s += '\n\n**Last route:** ' + (x.last.used ? '`' + x.last.used + '`' : 'failed') + ' via ' + x.last.mode + (x.last.escalated ? ' (escalated: ' + x.last.escalated + ')' : '') + ' — tried ' + x.last.tried.map(t => t.key + ':' + t.result).join(', ');
       return s + '\n\nOn HTTP 429/5xx/network errors a candidate cools down (Retry-After if given, else 30s→10min) and the next one is tried; it never retries once text has streamed.';
     }
-    ctx.provide('forge.router', { last: () => last, history: () => history.slice(), chain, setChain, resetChain: () => { ctx.data.del('chain'); refresh(); }, cooldowns: () => explain().cooldowns, clearCooldowns: () => clearCool(), use, active, explain, classify, sticky: () => Object.assign({}, sticky),
+    ctx.provide('forge.router', { freeFallback: { on: ffOn, set: v => { S().freeFallback = !!v; try { DS.store.save(); } catch (_) {} refresh(); }, offer: openBest }, last: () => last, history: () => history.slice(), chain, setChain, resetChain: () => { ctx.data.del('chain'); refresh(); }, cooldowns: () => explain().cooldowns, clearCooldowns: () => clearCool(), use, active, explain, classify, sticky: () => Object.assign({}, sticky),
       cache: { on: cacheOn, set: v => { ctx.data.set('cacheOn', !!v); refresh(); }, hits, clear: () => { ctx.data.set('cache', {}); ctx.data.set('hits', 0); refresh(); } },
       cascade: { on: cascadeOn, set: v => { ctx.data.set('cascadeOn', !!v); refresh(); }, strong: strongCand, setStrong: k => { ctx.data.set('strong', k || ''); refresh(); } } });
 
@@ -222,7 +314,8 @@ DS.plugin({
       const x = explain(); const ch = chain();
       const inChain = new Set(ch.map(keyOf));
       const opts = catalog().filter(c => c.provider !== 'sim' && !inChain.has(keyOf({ provider: c.provider, model: c.id }))).slice(0, 300);
-      el.innerHTML = '<div class="field"><label>Provider</label><div class="row" style="gap:8px;flex-wrap:wrap"><span class="chip ' + (x.active ? 'acc' : '') + '">' + (x.active ? 'Auto active' : 'Auto off') + '</span><button class="btn sm ' + (x.active ? '' : 'pri') + '" data-a="use">' + (x.active ? 'Turn off' : 'Use Auto') + '</button></div><div class="hint">Auto tries the chain top→down. Failures with HTTP 429/5xx or network errors cool down (Retry-After, else 30s doubling to 10 min). The last good route is reused per thread for 10 min. Text is never re-sent once it began streaming.</div></div>' +
+      el.innerHTML = '<div class="field"><label>Free fallback</label><div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn sm ' + (ffOn() ? 'pri' : '') + '" data-ff="1">' + (ffOn() ? 'On' : 'Off') + '</button><span class="xs muted">When your model has no key or fails before replying, try the free chain below first; the offline Sim is the last resort.</span></div></div>' +
+        '<div class="field"><label>Provider</label><div class="row" style="gap:8px;flex-wrap:wrap"><span class="chip ' + (x.active ? 'acc' : '') + '">' + (x.active ? 'Auto active' : 'Auto off') + '</span><button class="btn sm ' + (x.active ? '' : 'pri') + '" data-a="use">' + (x.active ? 'Turn off' : 'Use Auto') + '</button></div><div class="hint">Auto tries the chain top→down. Failures with HTTP 429/5xx or network errors cool down (Retry-After, else 30s doubling to 10 min). The last good route is reused per thread for 10 min. Text is never re-sent once it began streaming.</div></div>' +
         '<div class="sec-t">Chain ' + (x.customChain ? '(custom)' : '(free/keyless defaults)') + '</div><div class="rt-chain">' +
         (ch.length ? ch.map((c, i) => '<div class="rt-li"><span class="muted xs">' + (i + 1) + '</span><span class="nm" title="' + esc(keyOf(c)) + '">' + esc(keyOf(c)) + '</span>' + chip(x.chain[i].state) + '<button class="icon-btn" data-up="' + i + '" aria-label="Move up">↑</button><button class="icon-btn" data-dn="' + i + '" aria-label="Move down">↓</button><button class="icon-btn" data-rm="' + i + '" aria-label="Remove">' + DS.icon('x') + '</button></div>').join('') : '<div class="muted sm">Empty — add a candidate below.</div>') +
         '</div><div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap"><select class="sel" data-add style="flex:1;min-width:0">' + opts.map(c => '<option value="' + esc(c.provider + '|' + c.id) + '">' + esc(c.provider + ' · ' + c.label + (c.free ? ' · free' : '') + (c.route ? ' · ' + c.route : '')) + '</option>').join('') + '</select><button class="btn sm" data-a="add">Add</button><button class="btn sm" data-a="local">+ Local</button><button class="btn sm" data-a="reset">Reset</button></div>' +
@@ -231,6 +324,7 @@ DS.plugin({
         '<div class="sec-t">Cascade</div><label class="rt-sw"><input type="checkbox" data-t="cascade"' + (x.cascade.on ? ' checked' : '') + '> Cheap first, escalate if weak</label><div class="hint">The first chain model answers (buffered, so nothing streams twice). An empty, very short (&lt;12 chars) or refusing reply, or tool-call JSON that does not parse, is re-asked to the strong model. Strong: <b class="mono">' + esc(x.cascade.strong || 'none') + '</b></div><div class="row" style="gap:6px"><select class="sel" data-strong style="flex:1;min-width:0"><option value="">auto (DeepSeek if keyed, else last in chain)</option>' + catalog().filter(c => c.provider !== 'sim').slice(0, 300).map(c => { const v = c.provider + '|' + c.id; return '<option value="' + esc(v) + '"' + (ctx.data.get('strong', '') === v ? ' selected' : '') + '>' + esc(c.provider + ' · ' + c.label) + '</option>'; }).join('') + '</select></div>' +
         (x.last ? '<div class="sec-t">Last decision</div><div class="muted sm mono" style="word-break:break-word">' + esc((x.last.used || 'failed') + ' · ' + x.last.mode + (x.last.escalated ? ' · escalated: ' + x.last.escalated : '') + ' · tried ' + x.last.tried.map(t => t.key + ':' + t.result).join(', ')) + '</div>' : '');
       el.onclick = ev => {
+        if (ev.target.closest('[data-ff]')) { S().freeFallback = !ffOn(); try { DS.store.save(); } catch (_) {} refresh(); return; }
         const b = ev.target.closest('button'); if (!b) return; const c = chain().slice();
         if (b.dataset.up != null) { const i = +b.dataset.up; if (i > 0) { [c[i - 1], c[i]] = [c[i], c[i - 1]]; setChain(c); } return; }
         if (b.dataset.dn != null) { const i = +b.dataset.dn; if (i < c.length - 1) { [c[i + 1], c[i]] = [c[i], c[i + 1]]; setChain(c); } return; }
