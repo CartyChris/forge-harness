@@ -23,6 +23,7 @@ DS.plugin({
       let gw = false; try { const g = DS.service('forge.gateway'); gw = !!(g && g.get && g.get()) || /^https?:/.test(location.protocol); } catch (_) {}
       const seen = new Set(), out = []; const add = x => { if (seen.has(x.provider) || x.provider === 'sim' || x.provider === 'auto') return; seen.add(x.provider); out.push({ provider: x.provider, model: x.id, route: x.route || '' }); };
       const cat = catalog(); const pr = id => { const i = PREF.indexOf(id); return i < 0 ? 99 : i; };
+      cat.filter(x => x.provider === 'claude_artifact' && x.id === 'claude-default').forEach(add);  /* inside a Claude artifact: the viewer's own Claude first */
       cat.filter(x => hasKey(x.provider) && (x.free || x.freeTier || x.provider === 'deepseek')).sort((a, b) => pr(a.provider) - pr(b.provider)).forEach(add);
       cat.filter(x => (x.keyless || x.keyOptional) && x.route === 'direct').sort((a, b) => pr(a.provider) - pr(b.provider)).forEach(add);
       if (gw) cat.filter(x => x.keyless && x.free && x.route !== 'direct' && x.route !== 'local').sort((a, b) => rank(a.route) - rank(b.route)).forEach(add);

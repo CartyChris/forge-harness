@@ -97,3 +97,15 @@
   - **OVHcloud AI Endpoints** `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1`: anonymous use at 2 requests/minute per model. That anonymous access comes from third-party directories only.
 - **Not added:** OpenCode Zen. Its docs say the free models are for the OpenCode app only.
 - **Tests:** `t_freefallback` covers the no-key free answer, 429 → next, 401 keyed → free, the silent-endpoint timeout, all-fail → Sim + one-time prompt, no network when Sim is explicit or the fallback is off, and helpers getting an exhausted error. All 14 suites report `FAILS: none`.
+
+## Round 7d (2026-11-22): Claude built into the artifact
+- **New default inside a published Claude artifact.** "No API key needed: the agent, trainer and judge run on your own Claude account, through a "Claude (built into this artifact)" provider. The first call asks your permission and uses your Claude usage."
+  - **How it runs:** it uses the artifact `sample` capability. The agent (executor) uses the `default` tier, the trainer (planner) `complex`, and the judge (critic) `quick`, all switchable in Settings.
+  - **Tools:** these go through Forge's prompt protocol, so every existing tool works. The tool-call block itself is never streamed to the screen.
+  - **What it replaces:** only an unconfigured setup (OpenRouter with no key) or the Sim. A provider you have already set up stays your default.
+  - **If you decline consent:** the provider is marked unavailable and the free fallback takes over. Other providers stay available; note that the artifact viewer blocks outbound network calls, so in practice they work only from file:// or Vercel.
+  - **Outside an artifact:** nothing changes (file:// and Vercel default to OpenRouter).
+- **Downloads** inside the artifact go through the `downloads` capability. Plain links do nothing in the artifact viewer.
+- **Free fallback:** inside an artifact, Claude is first in the chain.
+- **Catalog:** the core provider is now listed as "OpenRouter / OpenAI-compatible (core)".
+- **Tests:** `t_claude_artifact` mocks the artifact runtime and runs 15 checks: default provider and tiers, the streaming chat, the instructions turn, a tool call through the loop, downloads, declined consent → fallback, no network, and nothing changing outside an artifact. All 15 suites report `FAILS: none`.
