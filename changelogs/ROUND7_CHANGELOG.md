@@ -109,3 +109,35 @@
 - **Free fallback:** inside an artifact, Claude is first in the chain.
 - **Catalog:** the core provider is now listed as "OpenRouter / OpenAI-compatible (core)".
 - **Tests:** `t_claude_artifact` mocks the artifact runtime and runs 15 checks: default provider and tiers, the streaming chat, the instructions turn, a tool call through the loop, downloads, declined consent → fallback, no network, and nothing changing outside an artifact. All 15 suites report `FAILS: none`.
+
+## Round 7e (2026-11-23): Observatory — live, visual agent observability
+- **Observatory view** (👁 on the left rail, `/observe`, and a live activity pill on every other screen while an agent runs):
+  - **Now card and 9 live metrics:** elapsed time, steps, tool calls, errors, tokens in and out, sites, files and subagents.
+  - **Swimlane timeline:** every model call and tool as a coloured bar (web, files, apps, agents, memory, code, approvals, errors), with each subagent in its own lane and a live "now" line.
+  - **Reasoning:** streamed thinking, or answer text when a model hides its reasoning, split into thoughts tagged plan / decision / intent / question / doubt / observation, step by step.
+  - **Web:** every search with its result cards, every page read showing exactly the text the agent got (redacted), and a domain map.
+  - **Agent's eye:** the app or game the agent is building runs live inside the Observatory. Forge watches it and shows:
+    - a canvas filmstrip;
+    - motion, blank-canvas and FPS detection;
+    - a wireframe of the page layout;
+    - element, button and keyboard counts;
+    - the console and errors.
+  - **What it saw:** the exact request for each step, as a token breakdown (system / tools schema / user / assistant / tool results) with a context-window gauge, every message as the model received it, the scoped list of tools it could call, and the redacted system prompt.
+  - **Tools:** a flow graph (which tool followed which), calls per tool with average latency and failures, and the files touched.
+  - **Log:** every event in order, with JSON export of the whole run.
+  - **Replay scrubber:** slide back in time and every panel re-renders as it was.
+- **`app_inspect` tool:** the agent can now see its own app. It runs the app for about 3 s and returns a verdict (animating / static / blank canvas / errors), FPS, canvas size, element and button counts, visible text and console output.
+- **Offline demo:** "Watch an agent build a game" on the welcome screen. It plans, builds a canvas game, inspects it and shows the result live.
+- **Safety:** observe-only (it never changes what agents do). Page text and prompts are passed through the shield's secret redaction. App frames run sandboxed without same-origin access, and only frames Forge created can report back.
+- **Tests:** `t_observe` (20 checks) covers:
+  - the run and its spans, thoughts and files;
+  - the agent's eye on a real running canvas game (frames, an "animating" verdict, no errors);
+  - searches, pages and sites, with redaction;
+  - tagged reasoning and the context snapshot;
+  - a subagent lane, the HUD, every tab at 390px without overflow, replay and export.
+  
+  All 16 suites report `FAILS: none`.
+- **Limits:**
+  - Screenshots of WebGL canvases need `preserveDrawingBuffer`; without it, frames may show blank.
+  - Live pages are shown as the text the agent read, not as embedded sites (most sites refuse embedding).
+  - Token counts are estimates (characters ÷ 4) unless the provider reports usage.
