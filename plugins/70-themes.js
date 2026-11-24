@@ -111,6 +111,10 @@ const FT_PACKS = {
   aurora: { label: 'Aurora', color: 'att-aurora', backdrop: 'aurora', layout: 'center', look: 'aurora' },
   opal: { label: 'Opal', color: 'att-opal', backdrop: 'orbs', layout: 'bubbles', look: 'opal' },
   neural: { label: 'Neural Cinematic', color: 'att-holo', backdrop: 'neuralmesh', layout: 'cinematic', look: 'glass' },
+  gpu_aurora: { label: 'Aurora Ice (GPU)', color: 'att-aurora', backdrop: 'gl-aurora', layout: 'center', look: 'glass' },
+  gpu_synth: { label: 'Synthwave (GPU)', color: 'att-cyberpunk', backdrop: 'gl-synth', layout: 'default', look: 'cyber' },
+  gpu_void: { label: 'Event Horizon (GPU)', color: 'att-holo', backdrop: 'gl-blackhole', layout: 'cinematic', look: 'glass' },
+  gpu_ink: { label: 'Ink & Quiet (GPU)', color: 'att-opal', backdrop: 'gl-ink', layout: 'bubbles', look: 'opal' },
 };
 const FT_CSS = `
 .ft-mini{position:absolute;top:0;right:0;bottom:0;left:0;pointer-events:none}.ft-mini u{position:absolute;right:10%;height:12%;border-radius:4px;width:40%;top:30%}.ft-mini u+u{left:20%;right:auto;width:55%;top:52%}

@@ -19,9 +19,12 @@ async def main():
             async def handler(route):
                 req = route.request; u = req.url
                 if req.method == 'OPTIONS': return await route.fulfill(status=204, headers=CORS)
-                if '/models' in u and req.method == 'GET': return await route.fulfill(status=200, headers=CORS, content_type='application/json', body='{"data":[]}')
+                if '/models' in u and req.method == 'GET':
+                    body = '{"data":[{"id":"foo/bar:free"},{"id":"paid/model"}]}' if mode.get(u.split('/')[2]) == 'heal' else '{"data":[]}'
+                    return await route.fulfill(status=200, headers=CORS, content_type='application/json', body=body)
                 host = u.split('/')[2]; hits.append({'host': host, 'auth': req.headers.get('authorization'), 'model': json.loads(req.post_data or '{}').get('model')})
                 m = mode.get(host, 'abort')
+                if m == 'heal': m = 'ok' if json.loads(req.post_data or '{}').get('model') == 'foo/bar:free' else 404
                 if m == 'ok': return await route.fulfill(status=200, headers=dict(CORS, **{'content-type': 'text/event-stream'}), body=sse('hello from ' + host))
                 if m == 'hang': await asyncio.sleep(6); return await route.abort()
                 if isinstance(m, int): return await route.fulfill(status=m, headers=CORS, content_type='application/json', body='{"error":{"message":"HTTP %d test"}}' % m)
@@ -40,6 +43,11 @@ async def main():
         st = await pg.evaluate("document.body.innerText.toLowerCase().includes('free fallback') && DS.store.activeThread().messages.at(-1).meta.provider === 'kilo'")
         check('toast mentions the free fallback + message tagged with the real provider', st)
         check('no page errors (1)', not errs, errs); await ctx.close()
+        # 1b stale model id → 404 → re-discover /models → retry with a live :free id
+        ctx, pg, errs, hits = await fresh({'ai-gateway.kilo.ai': 'heal'})
+        r = await pg.evaluate(RUN, 'say hi')
+        check('stale free model id self-heals via /models and answers', 'hello from ai-gateway.kilo.ai' in r['text'] and any(h['model'] == 'foo/bar:free' for h in hits), {'r': r, 'hits': hits[:4]})
+        await ctx.close()
         # 2 kilo 429 → next keyless answers, kilo cooled down
         ctx, pg, errs, hits = await fresh({'ai-gateway.kilo.ai': 429, 'api.llm7.io': 'ok', 'blockrun.ai': 'ok'})
         r = await pg.evaluate(RUN, 'say hi')

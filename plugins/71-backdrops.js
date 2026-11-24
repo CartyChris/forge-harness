@@ -213,15 +213,15 @@ DS.plugin({ name: 'forge.backdrops', title: 'Wallpapers (backdrops)', version: '
     /* still for card: 3D via the shared renderer (only when three is already loaded), else the 2D twin, else CSS still */
     function thumb(b, cv) { const k = b.id + '|' + colKey + '|' + (ENG.T ? 1 : 0); const c = thumbs.get(k); const g = cv.getContext('2d'); if (c) { g.clearRect(0, 0, PW, PH); g.drawImage(c, 0, 0); return c.dataset.kind; }
       let kind = 'still';
-      try { if (b.group === '3d' && ENG.T) { const p = make3d(b); if (p) { for (let i = 0; i < 4; i++) p.draw(3 + i / 30, 1 / 30, cv); p.dispose(); kind = '3d'; } }
+      try { if (b.group === 'gpu' && b.thumb && b.thumb(cv)) kind = 'gpu'; else if (b.group === '3d' && ENG.T) { const p = make3d(b); if (p) { for (let i = 0; i < 4; i++) p.draw(3 + i / 30, 1 / 30, cv); p.dispose(); kind = '3d'; } }
         if (kind === 'still') { const tw = b.group === '3d' ? find(b.fallback) : b; if (tw && tw.init) { draw2dInto(tw, cv); kind = b.group === '3d' ? 'twin' : '2d'; } } } catch (e) { ctx.log('warn', 'thumb ' + b.id + ': ' + e.message); }
       const copy = document.createElement('canvas'); copy.width = PW; copy.height = PH; copy.getContext('2d').drawImage(cv, 0, 0); copy.dataset.kind = kind; thumbs.set(k, copy); return kind; }
     ctx.effect(() => DS.bus.on('backdrops:recolor', () => thumbs.clear()));
 
     /* ---------- the Wallpapers gallery view ---------- */
     DS.icons.wallpaper = DS.icons.wallpaper || '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 16l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.6"/></svg>';
-    const CATS = [['all', 'All'], ['3d', '3D scenes'], ['gen', 'Generative 2D'], ['calm', 'Calm']];
-    const inCat = (b, c) => c === 'all' || (c === '3d' ? b.group === '3d' : c === 'calm' ? (b.cat === 'calm' || b.calm) : b.group !== '3d' && b.cat !== 'calm');
+    const CATS = [['all', 'All'], ['gpu', 'GPU shaders'], ['3d', '3D scenes'], ['gen', 'Generative 2D'], ['calm', 'Calm']];
+    const inCat = (b, c) => c === 'all' || (c === 'gpu' ? b.group === 'gpu' : c === '3d' ? b.group === '3d' : c === 'calm' ? (b.cat === 'calm' || b.calm) : b.group !== '3d' && b.group !== 'gpu' && b.cat !== 'calm');
     function engineLine() { if (ENG.T) return '<span class="wp-ok">●</span> three.js r' + esc(String(ENG.T.REVISION)) + ' ready · ' + ENG.contexts + ' WebGL context' + (ENG.lost ? ' (lost — recovering)' : '');
       if (ENG.p) return '<span class="wp-wait">●</span> loading three.js…'; if (ENG.err) return '<span class="wp-bad">●</span> 3D engine unavailable (' + esc(ENG.err) + ') — 3D wallpapers use their 2D version'; return '<span class="wp-wait">●</span> three.js loads on demand (jsdelivr → unpkg)'; }
     ctx.view({ id: 'wallpapers', title: 'Wallpapers', icon: 'wallpaper', order: 89, mount(el) {

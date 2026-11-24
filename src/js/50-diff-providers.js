@@ -117,7 +117,7 @@ DS.simProvider = {
     let script = null, intent = null;
     for (const it of DS.kernel.list('intent')) { try { if (it.match(text, sctx)) { script = await it.script(text, sctx); intent = it; break; } } catch (e) { DS.kernel.log('error', it.__owner || 'sim', 'intent ' + it.id + ' failed: ' + e.message); } }
     if (!script) {
-      const t = 'I’m running on the **offline Sim** (no API key), so I only understand a few built-in intents.\n\nTry: *“audit the workspace”*, *“build a snake game”*, *“make an image of a neon city”*, *“list files”*, *“read AGENTS.md”*, `/help`.\n\nAdd a DeepSeek key in **Settings → Model** for the real thing; or teach the Sim new tricks with an `intent` plugin.';
+      const t = 'I’m running on the **offline Sim** (no API key), so I only understand a few built-in intents.\n\nTry: *“audit the workspace”*, *“build a snake game”*, *“make an image of a neon city”*, *“list files”*, *“read AGENTS.md”*, `/help`.\n\nFor real answers: open **Models** and add a free key (OpenRouter, Groq or Gemini — links there), or set up an on-device model; or teach the Sim new tricks with an `intent` plugin.';
       await say(t); return { content: t, reasoning: '', toolCalls: [], usage: null };
     }
     const reason = ''; await DS.util.sleep(60);

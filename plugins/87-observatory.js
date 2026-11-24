@@ -88,15 +88,17 @@ DS.plugin({
     ctx.on('msg:update', ({ thread, msg }) => {
       const run = runOf(thread); if (!run || !msg || msg.role !== 'assistant') return;
       const seen = run.seen[msg.id] || (run.seen[msg.id] = { r: 0, x: 0 });
-      let r = '', x = '';
-      for (const p of msg.parts || []) { if (p.type === 'reasoning') r += p.text || ''; else if (p.type === 'text') x += p.text || ''; }
+      /* O(new text) per update: sum part lengths, then slice only the tail that is new (no full-string rebuild per delta) */
+      const tail = (type, seenLen) => { const ps = (msg.parts || []).filter(p => p.type === type); let total = 0; for (const p of ps) total += (p.text || '').length; if (total <= seenLen) return { total, d: '' };
+        let need = total - seenLen, out = ''; for (let i = ps.length - 1; i >= 0 && need > 0; i--) { const t = ps[i].text || ''; const take = Math.min(need, t.length); out = t.slice(t.length - take) + out; need -= take; } return { total, d: out }; };
+      const R = tail('reasoning', seen.r), X = tail('text', seen.x);
       /* tool calls that fail before afterTool (validation, guard denial) — close their span and count the error */
       for (const p of msg.parts || []) if (p.type === 'tool' && (p.status === 'err' || p.status === 'denied') && !(run.seen['p:' + p.id])) {
         run.seen['p:' + p.id] = 1; const key = run.open.get('last:' + p.name);
         if (key && run.open.has(key)) { run.open.delete('last:' + p.name); run.errors++; closeSpan(run, key, 'err'); ev(run, 'tool_end', { name: p.name, cat: CAT(p.name), ms: 0, status: 'err', summary: safe(p.summary || (p.result && p.result.error) || p.status, 200) }); if (run.cur.tool === p.name) run.cur = { label: 'thinking · step ' + run.steps, since: wall(), cat: 'model' }; }
       }
-      if (r.length > seen.r) { feedMind(run, r.slice(seen.r), 'reasoning'); seen.r = r.length; if (run.cur.cat === 'model') run.cur.label = 'reasoning · step ' + run.steps; dirty(); }
-      if (x.length > seen.x) { const d = x.slice(seen.x); seen.x = x.length; run.says = clip(x, 4000); if (!r) feedMind(run, d, 'answer'); if (run.cur.cat === 'model') run.cur.label = 'writing · step ' + run.steps; dirty(); }
+      if (R.d) { feedMind(run, R.d, 'reasoning'); seen.r = R.total; if (run.cur.cat === 'model') run.cur.label = 'reasoning · step ' + run.steps; dirty(); }
+      if (X.d) { const d = X.d; seen.x = X.total; run.says = clip(run.says.length < 4000 ? run.says + d : run.says, 4000); if (!R.total) feedMind(run, d, 'answer'); if (run.cur.cat === 'model') run.cur.label = 'writing · step ' + run.steps; dirty(); }
     });
     ctx.hook('beforeTool', ({ name, args, thread }) => {
       const run = runOf(thread); if (!run) return;
@@ -140,6 +142,8 @@ DS.plugin({
       ev(run, 'tool_end', { name, cat: CAT(name), ms: sp ? sp.t1 - sp.t0 : 0, status: err ? 'err' : 'ok', summary: safe((part && part.summary) || (result && result.error) || '', 200) });
       if (run.cur.tool === name) run.cur = { label: 'thinking · step ' + run.steps, since: wall(), cat: 'model' };
     }, { order: 99 });
+    /* Claude-in-artifact: which tier/effort it picked for this step, and why */
+    ctx.on('claude:route', d => { const run = d && runs.get(cur.get(d.threadId)); if (!run) return; const sp = run.open.get('m' + run.steps); const tag = d.tier + (d.effort ? '·' + d.effort : ''); if (sp) sp.label = 'step ' + run.steps + ' · claude ' + tag; run.cur = { label: 'thinking · step ' + run.steps + ' · claude ' + tag, since: wall(), cat: 'model' }; ev(run, 'route', { tier: d.tier, effort: d.effort, why: d.why }); });
     ctx.on('approval:open', req => { const run = req && runOf(req.thread) || runs.get(selected); if (run) { openSpan(run, 'appr', 'approval', 'waiting for you: ' + ((req && req.tool) || ''), 'approval'); run.cur = { label: 'waiting for your approval · ' + ((req && req.tool) || ''), since: wall(), cat: 'approval' }; ev(run, 'approval', { tool: req && req.tool, action: req && req.action }); } });
     ctx.on('approval:result', r => { for (const run of runs.values()) if (run.open.has('appr')) { closeSpan(run, 'appr', r && r.allowed ? 'ok' : 'err'); ev(run, 'approval_end', { tool: r && r.tool, allowed: !!(r && r.allowed) }); } });
     ctx.hook('run:end', ({ thread, msg }) => {
@@ -389,7 +393,7 @@ DS.plugin({
     }
     function logHtml(run) {
       const evs = run.events.filter(inCut).slice(-400);
-      const desc = e => e.k === 'tool' ? e.name + ' ' + e.args : e.k === 'tool_end' ? e.name + ' · ' + e.status + ' · ' + fmtMs(e.ms) + (e.summary ? ' · ' + e.summary : '') : e.k === 'model' ? 'step ' + e.step + ' → ' + e.provider + ' · ' + e.model + ' · ≈' + tok(e.ctx) + ' tok · ' + e.tools + ' tools' : e.k === 'model_end' ? 'step ' + e.step + ' · ' + fmtMs(e.ms) + (e.calls.length ? ' · calls ' + e.calls.join(', ') : ' · answer') : e.k === 'run' ? e.text : e.k === 'run_end' ? e.status + ' · ' + fmtMs(e.ms) + (e.error ? ' · ' + e.error : '') : e.k === 'eye' ? e.why + ' ' + e.path : e.k === 'spawn' ? e.role + ': ' + e.task : JSON.stringify(Object.assign({}, e, { t: undefined, k: undefined }));
+      const desc = e => e.k === 'tool' ? e.name + ' ' + e.args : e.k === 'tool_end' ? e.name + ' · ' + e.status + ' · ' + fmtMs(e.ms) + (e.summary ? ' · ' + e.summary : '') : e.k === 'model' ? 'step ' + e.step + ' → ' + e.provider + ' · ' + e.model + ' · ≈' + tok(e.ctx) + ' tok · ' + e.tools + ' tools' : e.k === 'model_end' ? 'step ' + e.step + ' · ' + fmtMs(e.ms) + (e.calls.length ? ' · calls ' + e.calls.join(', ') : ' · answer') : e.k === 'run' ? e.text : e.k === 'run_end' ? e.status + ' · ' + fmtMs(e.ms) + (e.error ? ' · ' + e.error : '') : e.k === 'eye' ? e.why + ' ' + e.path : e.k === 'spawn' ? e.role + ': ' + e.task : e.k === 'route' ? 'claude ' + e.tier + (e.effort ? ' · ' + e.effort : '') + ' — ' + e.why : JSON.stringify(Object.assign({}, e, { t: undefined, k: undefined }));
       return evs.length ? '<div class="ob-log">' + evs.map(e => '<div><span class="ts">' + new Date(e.t).toLocaleTimeString([], { hour12: false }) + '</span><span class="k" style="color:' + (e.k.startsWith('tool') ? COL[e.cat] || COL.other : e.k.startsWith('model') ? COL.model : e.status === 'err' ? COL.error : 'var(--text-2)') + '">' + esc(e.k) + '</span><span class="d">' + esc(desc(e)) + '</span></div>').join('') + '</div>' : '<div class="ob-empty">No events.</div>';
     }
     function metrics(run) {

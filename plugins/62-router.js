@@ -91,8 +91,15 @@ DS.plugin({
     }
 
     /* ---------- the router ---------- */
+    const healed = new Set();
+    async function healModel(c) {
+      const core = DS.service('forge.providers.core'); if (!core || !core.discover) return null;
+      await core.discover(c.provider);
+      const ids = (M() && M().catalog ? M().catalog() : []).filter(x => x.provider === c.provider).map(x => x.id).filter(id => id && id !== c.model);
+      return ids.find(id => /:free$/.test(id)) || ids.find(id => /free/i.test(id)) || ids[0] || null;
+    }
     async function attempt(cands, opts, buffer, tried) {
-      for (const c of cands) {
+      for (let ci = 0; ci < cands.length; ci++) { const c = cands[ci];
         const k = keyOf(c); const left = coolLeft(k);
         if (left) { tried.push({ key: k, result: 'cooldown', secs: left }); continue; }
         const p = provObj(c.provider);
@@ -129,6 +136,13 @@ DS.plugin({
           }
           if (info.retry) tried.push({ key: k, result: 'cooldown-set', status: info.status, secs: setCool(k, info), error: info.msg });
           else tried.push({ key: k, result: 'error', status: info.status, error: info.msg });
+          /* self-healing model ids: free lineups change. On "model not found"-style errors, re-read the provider's
+             /models once per session and retry with a live id (preferring :free ones). */
+          if ((info.status === 404 || ((info.status === 400 || info.status === 422) && /model|not (found|exist|available)|unknown|invalid/i.test(info.msg))) && !healed.has(c.provider)) {
+            healed.add(c.provider); setCool(k, { retry: true, status: 404 });
+            const alt = await healModel(c).catch(() => null);
+            if (alt) { tried.push({ key: k, result: 'healed', to: alt }); cands = cands.slice(); const i = cands.indexOf(c); cands.splice(i + 1, 0, { provider: c.provider, model: alt, healed: true }); }
+          }
         }
       }
       return null;

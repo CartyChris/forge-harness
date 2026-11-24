@@ -141,3 +141,22 @@
   - Screenshots of WebGL canvases need `preserveDrawingBuffer`; without it, frames may show blank.
   - Live pages are shown as the text the agent read, not as embedded sites (most sites refuse embedding).
   - Token counts are estimates (characters ÷ 4) unless the provider reports usage.
+
+## Round 7f (2026-11-24): Claude orchestrates itself, GPU wallpapers, self-healing free models
+- **Claude inside the artifact (v2).**
+  - **Auto mode (default agent):** Claude picks its own tier and effort for every step. Hard first steps (build / debug / design / research, long prompts, planning, orchestration) run on the most capable tier at high effort. Routine tool-processing steps run on the balanced tier at low or medium effort. Short chat runs on the fastest tier. Two recent tool failures escalate to the most capable tier (a cascade). Each decision and its reason shows in the Observatory timeline and in Settings.
+  - **Your chat model (`inherit`):** offered when the viewer supports it.
+  - **Fixed tier/effort choices:** most capable · high effort, most capable, balanced, balanced · low, fastest. The trainer/planner defaults to most capable · high; the judge/critic defaults to fastest.
+  - **Self-orchestration.** "Claude team" roles: Orchestrator = most capable · high; Coder / Researcher = balanced; Reviewer = most capable; Fast = fastest. "Claude lead + free workers" runs Researcher and Fast on the free fallback chain instead. A short delegation note lets Claude decide when to spawn cheaper copies of itself (it can be switched off).
+  - **Prompt-size fitting** uses real UTF-8 byte counts and the viewer's own `maxPromptBytes`, keeps user/assistant alternation, and trims the oldest turns first. A toast appears when the plan serves a different tier.
+- **GPU shader wallpapers** (new plugin `73-shaders`, raw WebGL, no libraries, works offline and inside the artifact):
+  - **10 scenes:** Aurora over ice, Volumetric nebula, Liquid chrome metaballs, Synthwave, Ocean at dusk, Plasma warp tunnel, Voronoi crystal, Black hole lensing, Ink smoke (calm), and a gyroid lattice fly-through.
+  - **Each scene is lightweight:** one fullscreen triangle, one shader program, no textures. Post-processing is cinematic (ACES tonemap, saturation and contrast curve, vignette, film grain, glow). Theme colours come in as uniforms and the scenes follow the pointer.
+  - **Engine:** adaptive resolution (frame-time EMA), FPS cap, pause when the tab is hidden, calm mode while typing, a still frame for reduced motion, and a CSS fallback if the GPU context is lost. Switching scenes frees the GPU context.
+  - **Gallery:** a "GPU shaders" tab with real rendered thumbnails that all share one offscreen context.
+  - **Theme presets:** Aurora Ice, Synthwave, Event Horizon, Ink & Quiet.
+- **Free providers heal stale model ids.** On a 404 (or a 400/422 that mentions the model), the router re-reads that provider's `/models` once and retries with a live id, preferring `:free` ones.
+- **Sim message** now points to free keys (OpenRouter / Groq / Gemini) or on-device models; the leftover "DeepSeek key" text is gone.
+- **Observatory:** reasoning capture is now O(new text) per streamed update.
+- **Tests:** `t_shaders` (every scene compiles, renders non-blank, reacts to the pointer; at most one context after 10 switches; reduced motion; no overflow). `t_claude_artifact` adds auto tier/effort, escalation, teams, the delegation prompt and the model picker. `t_freefallback` adds self-healing model ids. All 17 suites report `FAILS: none`.
+- **Not verified:** live calls to the free endpoints (this sandbox can't reach them), the real claude.ai artifact runtime (tests mock it), and real GPUs or iOS (shaders were tested on SwiftShader).
